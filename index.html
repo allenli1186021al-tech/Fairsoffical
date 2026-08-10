@@ -91,12 +91,21 @@
     border-radius:50%; font-family:'JetBrains Mono',monospace; font-weight:700;
     color:rgba(255,255,255,.95); text-shadow:0 1px 1px rgba(0,0,0,.3);
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.15);
+    transition: filter .15s;
   }
+  .team-badge:hover, .team-logo-chip:hover{ filter:brightness(1.15); }
   .team-logo-chip{
     display:inline-flex; align-items:center; justify-content:center; flex:none;
     background:var(--paper); box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+    transition: filter .15s;
   }
   .team-logo-chip img{ display:block; }
+  .player-photo-placeholder{
+    display:inline-flex; align-items:center; justify-content:center; flex:none;
+    border-radius:50%; border:1.5px dashed var(--court-line-dim); color:var(--court-line-dim);
+    font-weight:700; transition:border-color .15s, color .15s;
+  }
+  .player-photo-placeholder:hover{ border-color:var(--hardwood); color:var(--hardwood); }
   .mini-row .rec{font-family:'JetBrains Mono',monospace; color:var(--paper-dim); font-size:13px;}
   .see-all{
     display:block; text-align:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--ink-line);
@@ -571,7 +580,7 @@ function handleUploadPlayerPhoto(){
   const file = document.getElementById('photo-file').files[0];
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
+  resizeImageToDataUrl(file, 200, 'contain', (dataUrl)=>{
     const all = localDB.get('player-photos') || {};
     all[name.toLowerCase()] = {name, photo:dataUrl};
     localDB.set('player-photos', all);
@@ -588,6 +597,48 @@ function handleRemovePlayerPhoto(nameKey){
   render();
 }
 
+/* ---------------- Click-anywhere upload (Canva-style) ---------------- */
+function triggerTeamLogoUpload(team){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = function(){
+    const file = input.files[0];
+    if(!file) return;
+    resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
+      const all = localDB.get('team-logos') || {};
+      all[team] = dataUrl;
+      localDB.set('team-logos', all);
+      teamLogos = all;
+      showToast(TEAM_NAMES[team]+' logo updated');
+      render();
+    });
+  };
+  input.click();
+}
+function triggerPlayerPhotoUpload(name){
+  if(!name) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = function(){
+    const file = input.files[0];
+    if(!file) return;
+    resizeImageToDataUrl(file, 200, 'contain', (dataUrl)=>{
+      const all = localDB.get('player-photos') || {};
+      all[name.toLowerCase()] = {name, photo:dataUrl};
+      localDB.set('player-photos', all);
+      playerPhotos = all;
+      showToast(name+"'s photo updated");
+      render();
+    });
+  };
+  input.click();
+}
+function escAttr(str){
+  return String(str||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 /* ---------------- Helpers ---------------- */
 function fmtDate(d){
   const dt = new Date(d+'T00:00:00');
@@ -596,19 +647,27 @@ function fmtDate(d){
 function teamColor(t){ return TEAM_COLORS[t] || 'var(--hardwood)'; }
 function teamBadgeHtml(t, size){
   size = size || 22;
+  const dataAttr = `data-team="${escAttr(t)}" onclick="triggerTeamLogoUpload(this.dataset.team)"`;
   if(teamLogos[t]){
     const pad = Math.max(2, Math.round(size*0.1));
     const radius = Math.max(4, Math.round(size*0.22));
-    return `<span class="team-logo-chip" style="width:${size}px;height:${size}px;border-radius:${radius}px;padding:${pad}px;"><img src="${teamLogos[t]}" alt="${t}" style="width:100%;height:100%;object-fit:contain;"></span>`;
+    return `<span class="team-logo-chip" ${dataAttr} title="Click to change ${t} logo" style="width:${size}px;height:${size}px;border-radius:${radius}px;padding:${pad}px;cursor:pointer;"><img src="${teamLogos[t]}" alt="${t}" style="width:100%;height:100%;object-fit:contain;"></span>`;
   }
   const fontSize = Math.round(size*0.42);
-  return `<span class="team-badge" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:${teamColor(t)}">${t||'FA'}</span>`;
+  return `<span class="team-badge" ${dataAttr} title="Click to upload ${t} logo" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:${teamColor(t)};cursor:pointer;">${t||'FA'}</span>`;
 }
 function playerPhotoHtml(name, size){
   size = size || 22;
+  if(!name) return '';
+  const dataAttr = `data-player="${escAttr(name)}" onclick="triggerPlayerPhotoUpload(this.dataset.player)"`;
   const entry = playerPhotos[(name||'').trim().toLowerCase()];
-  if(!entry) return '';
-  return `<img src="${entry.photo}" alt="${name}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15);">`;
+  if(entry){
+    const pad = Math.max(1, Math.round(size*0.06));
+    const radius = Math.max(4, Math.round(size*0.22));
+    return `<span class="team-logo-chip" ${dataAttr} title="Click to change photo" style="width:${size}px;height:${size}px;border-radius:${radius}px;padding:${pad}px;cursor:pointer;"><img src="${entry.photo}" alt="${name}" style="width:100%;height:100%;object-fit:contain;"></span>`;
+  }
+  const fontSize = Math.round(size*0.5);
+  return `<span class="player-photo-placeholder" ${dataAttr} title="Click to add a photo of ${name}" style="width:${size}px;height:${size}px;font-size:${fontSize}px;cursor:pointer;">+</span>`;
 }
 function sortByRecency(list){
   // Sorts by entered date first; falls back to creation time (embedded in id) when no date was given.
