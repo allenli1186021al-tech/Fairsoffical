@@ -580,7 +580,7 @@ function handleUploadPlayerPhoto(){
   const file = document.getElementById('photo-file').files[0];
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 200, 'contain', (dataUrl)=>{
+  resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
     const all = localDB.get('player-photos') || {};
     all[name.toLowerCase()] = {name, photo:dataUrl};
     localDB.set('player-photos', all);
@@ -624,7 +624,7 @@ function triggerPlayerPhotoUpload(name){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 200, 'contain', (dataUrl)=>{
+    resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
       const all = localDB.get('player-photos') || {};
       all[name.toLowerCase()] = {name, photo:dataUrl};
       localDB.set('player-photos', all);
@@ -662,9 +662,7 @@ function playerPhotoHtml(name, size){
   const dataAttr = `data-player="${escAttr(name)}" onclick="triggerPlayerPhotoUpload(this.dataset.player)"`;
   const entry = playerPhotos[(name||'').trim().toLowerCase()];
   if(entry){
-    const pad = Math.max(1, Math.round(size*0.06));
-    const radius = Math.max(4, Math.round(size*0.22));
-    return `<span class="team-logo-chip" ${dataAttr} title="Click to change photo" style="width:${size}px;height:${size}px;border-radius:${radius}px;padding:${pad}px;cursor:pointer;"><img src="${entry.photo}" alt="${name}" style="width:100%;height:100%;object-fit:contain;"></span>`;
+    return `<img src="${entry.photo}" alt="${name}" ${dataAttr} title="Click to change photo" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15);cursor:pointer;">`;
   }
   const fontSize = Math.round(size*0.5);
   return `<span class="player-photo-placeholder" ${dataAttr} title="Click to add a photo of ${name}" style="width:${size}px;height:${size}px;font-size:${fontSize}px;cursor:pointer;">+</span>`;
