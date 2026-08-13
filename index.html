@@ -311,6 +311,7 @@
         <button data-v="teams" class="display">Find Your Team</button>
         <div class="nav-team-dropdown" id="navTeamDropdown"></div>
       </div>
+      <button data-v="live" class="display">Live</button>
       <button data-v="scores" class="display">Scores</button>
       <button data-v="moves" class="display">Free Agency</button>
       <button data-v="trades" class="display">Trades</button>
@@ -365,6 +366,40 @@ let currentTeam = null;
 let currentView = 'home';
 let currentArticleId = null;
 let currentConf = 'east';
+
+/* ---------------- Live data: Big Balls Sports Data API ---------------- */
+// Free-tier key — visible in this public repo's source, which is expected for a
+// static hobby site with no backend. Worst case someone else eats into the daily quota.
+const BBS_API_KEY = 'bbs_live_00000I4RfaPn8KKHNsNzfVaHRBLIxRiaR3T47OSY9zSZAEeI';
+const BBS_API = 'https://api.bigballsdata.com';
+async function bbsFetch(path){
+  try{
+    const res = await fetch(BBS_API + path, {
+      headers: { Authorization: 'Bearer ' + BBS_API_KEY }
+    });
+    if(!res.ok){
+      console.warn('BBS API error', res.status, path);
+      return null;
+    }
+    return await res.json();
+  }catch(e){
+    console.warn('BBS API fetch failed', e);
+    return null;
+  }
+}
+// Pull the first non-empty value out of a list of possible field names —
+// used because a few stat field names aren't fully confirmed from public docs.
+function pickField(obj, names){
+  if(!obj) return undefined;
+  for(const n of names){
+    if(obj[n] !== undefined && obj[n] !== null) return obj[n];
+  }
+  return undefined;
+}
+let liveGames = [];
+let livePollTimer = null;
+let seenPlayIds = {}; // { gameId: Set of play ids already flashed }
+let liveLoading = false;
 
 /* ---------------- Storage: local (works on any real host, saved in this browser) ---------------- */
 const localDB = {
@@ -1323,6 +1358,160 @@ function renderMedia(){
   `;
 }
 
+/* ---------------- Live: fetch games, poll, flash plays, sync stats ---------------- */
+async function fetchLiveGames(){
+  liveLoading = true;
+  render();
+  const result = await bbsFetch('/v1/nba/games?limit=25');
+  liveLoading = false;
+  liveGames = (result && result.data) ? result.data : [];
+  render();
+}
+function isGameLive(g){
+  const status = String(pickField(g, ['status','game_status','state']) || '').toLowerCase();
+  return status.includes('progress') || status.includes('live');
+}
+function gameTeamInfo(teamObj){
+  return {
+    name: pickField(teamObj, ['name','team_name','full_name']) || '',
+    abbr: pickField(teamObj, ['abbreviation','tricode','abbr','code']) || '',
+    score: pickField(teamObj, ['score','points','pts']) ?? '-'
+  };
+}
+function startLivePolling(){
+  stopLivePolling();
+  livePollTimer = setInterval(()=>{
+    if(currentView==='live') fetchLiveGames();
+  }, 30000);
+}
+function stopLivePolling(){
+  if(livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
+}
+async function watchGamePlays(matchId, gameId){
+  const result = await bbsFetch(`/v1/nba/games/${gameId}/plays`);
+  if(!result || !result.data) return;
+  const plays = result.data;
+  if(!seenPlayIds[gameId]) seenPlayIds[gameId] = new Set();
+  const seen = seenPlayIds[gameId];
+  const keywords = ['three','3-pt','3pt','layup','dunk','block','steal'];
+  plays.forEach(p=>{
+    const id = pickField(p, ['id','play_id','event_id']) ?? JSON.stringify(p).slice(0,40);
+    if(seen.has(id)) return;
+    seen.add(id);
+    const desc = String(pickField(p, ['description','desc','text','play']) || '');
+    const lower = desc.toLowerCase();
+    if(keywords.some(k=>lower.includes(k)) && desc){
+      showToast(desc);
+    }
+  });
+}
+async function handleSyncTeamStats(matchId){
+  showToast('Syncing stats…');
+  const result = await bbsFetch(`/v1/nba/games/${matchId}/matchup`);
+  if(!result || !result.data){ showToast('Could not sync — try again later'); return; }
+  const data = result.data;
+  const sides = [data.home_team, data.away_team].filter(Boolean);
+  let synced = 0;
+  sides.forEach(side=>{
+    const teamAbbr = pickField(side, ['abbreviation','tricode','abbr','code']);
+    const players = side.players || [];
+    players.forEach(p=>{
+      const name = pickField(p, ['name','player_name','full_name']);
+      const avg = p.season_averages || p.averages || {};
+      const totals = p.season_totals || p.totals || {};
+      if(!name || !teamAbbr) return;
+      const fieldMap = [
+        ['ppg', pickField(avg, ['pts','points','ppg'])],
+        ['rpg', pickField(avg, ['reb','rebounds','rpg'])],
+        ['apg', pickField(avg, ['ast','assists','apg'])],
+        ['spg', pickField(avg, ['stl','steals','spg'])],
+        ['bpg', pickField(avg, ['blk','blocks','bpg'])],
+        ['topg', pickField(avg, ['tov','turnovers'])],
+        ['tpg', pickField(avg, ['fg3m','three_pm','tpm'])],
+        ['twopg', pickField(avg, ['fg2m','two_pm'])],
+        ['pts_tot', pickField(totals, ['pts','points'])],
+        ['reb_tot', pickField(totals, ['reb','rebounds'])],
+        ['ast_tot', pickField(totals, ['ast','assists'])],
+        ['stl_tot', pickField(totals, ['stl','steals'])],
+        ['blk_tot', pickField(totals, ['blk','blocks'])],
+        ['tov_tot', pickField(totals, ['tov','turnovers'])],
+        ['tpm_tot', pickField(totals, ['fg3m','three_pm'])],
+        ['twopm_tot', pickField(totals, ['fg2m','two_pm'])]
+      ];
+      fieldMap.forEach(([catKey, value])=>{
+        if(value === undefined || value === null) return;
+        const all = localDB.get('stat-leaders:'+activeSeason) || {};
+        const list = all[catKey] || [];
+        const existingIdx = list.findIndex(e=>e.player.toLowerCase()===name.toLowerCase() && e.team===teamAbbr);
+        const entry = { id: existingIdx>-1 ? list[existingIdx].id : 'sync-'+catKey+'-'+name.replace(/\s+/g,'_'), player:name, team:teamAbbr, value:parseFloat(value) };
+        if(existingIdx>-1) list[existingIdx] = entry; else list.push(entry);
+        all[catKey] = list;
+        localDB.set('stat-leaders:'+activeSeason, all);
+      });
+      synced++;
+    });
+  });
+  loadStatLeaders();
+  showToast(synced+' players synced');
+  render();
+}
+function renderLive(){
+  const live = liveGames.filter(isGameLive);
+  const others = liveGames.filter(g=>!isGameLive(g)).slice(0,10);
+  return `
+    <div style="padding-top:40px;">
+      <p class="eyebrow">Live</p>
+      <h2 class="section-title" style="margin-bottom:8px;">Live Games</h2>
+      <p class="form-note" style="margin-bottom:24px;">Auto-refreshes every 30 seconds while this page is open. Scoring plays, blocks, and steals flash as toast notifications when detected.</p>
+
+      ${liveLoading ? `<div class="empty-state">Loading…</div>` : ''}
+
+      ${!liveLoading && live.length===0 ? `<div class="empty-state" style="margin-bottom:24px;">No games live right now.</div>` : ''}
+
+      ${live.map(g=>{
+        const home = gameTeamInfo(g.home_team||{});
+        const away = gameTeamInfo(g.away_team||{});
+        const period = pickField(g, ['period','quarter','current_period']) || '';
+        const clock = pickField(g, ['clock','game_clock','time_remaining']) || '';
+        const matchId = pickField(g, ['match_id','id']);
+        const gameId = pickField(g, ['game_id','nba_game_id']);
+        if(matchId && gameId) watchGamePlays(matchId, gameId);
+        return `
+          <div class="score-entry" style="margin-bottom:16px;">
+            <div class="score-line">
+              <span class="vs-team">${away.abbr} <span class="score-num">${away.score}</span></span>
+              <span style="color:var(--court-line-dim);">&ndash;</span>
+              <span class="vs-team"><span class="score-num">${home.score}</span> ${home.abbr}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <span class="score-status" style="color:var(--buzzer);">● LIVE</span>
+              <span class="score-date">${period ? 'Q'+period : ''} ${clock}</span>
+              ${matchId ? `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleSyncTeamStats('${matchId}')">Sync Team Stats</button>` : ''}
+            </div>
+          </div>`;
+      }).join('')}
+
+      ${others.length ? `
+        <div class="divider-court"></div>
+        <h3 class="section-title" style="font-size:18px; margin-bottom:14px;">Other Games</h3>
+        ${others.map(g=>{
+          const home = gameTeamInfo(g.home_team||{});
+          const away = gameTeamInfo(g.away_team||{});
+          const status = pickField(g, ['status','game_status','state']) || '';
+          return `<div class="score-entry" style="margin-bottom:10px;">
+            <div class="score-line">
+              <span class="vs-team">${away.abbr} <span class="score-num">${away.score}</span></span>
+              <span style="color:var(--court-line-dim);">&ndash;</span>
+              <span class="vs-team"><span class="score-num">${home.score}</span> ${home.abbr}</span>
+            </div>
+            <span class="score-status">${status}</span>
+          </div>`;
+        }).join('')}
+      ` : ''}
+    </div>
+  `;
+}
+
 /* ---------------- Render: Find Your Team ---------------- */
 function renderNavTeamDropdown(){
   const container = document.getElementById('navTeamDropdown');
@@ -1560,6 +1749,7 @@ function render(){
   else if(currentView==='trades'){ app.innerHTML = renderTrades(); initTradeForm(); }
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
+  else if(currentView==='live') app.innerHTML = renderLive();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
   else if(currentView==='team') app.innerHTML = renderTeamPage(currentTeam);
   else if(currentView==='publish') app.innerHTML = renderPublish();
@@ -1571,7 +1761,18 @@ function render(){
   renderNavTeamDropdown();
   window.scrollTo({top:0, behavior:'instant'});
 }
-function go(view){ currentView = view; render(); }
+function go(view){
+  currentView = view;
+  if(view==='live'){
+    liveLoading = true;
+    render();
+    fetchLiveGames();
+    startLivePolling();
+  } else {
+    stopLivePolling();
+    render();
+  }
+}
 function openArticle(id){ currentArticleId = id; currentView = 'article'; render(); }
 function setConf(c){ currentConf = c; render(); }
 
