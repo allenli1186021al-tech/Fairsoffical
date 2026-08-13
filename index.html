@@ -311,7 +311,6 @@
         <button data-v="teams" class="display">Find Your Team</button>
         <div class="nav-team-dropdown" id="navTeamDropdown"></div>
       </div>
-      <button data-v="live" class="display">Live</button>
       <button data-v="scores" class="display">Scores</button>
       <button data-v="moves" class="display">Free Agency</button>
       <button data-v="trades" class="display">Trades</button>
@@ -400,6 +399,31 @@ let liveGames = [];
 let livePollTimer = null;
 let seenPlayIds = {}; // { gameId: Set of play ids already flashed }
 let liveLoading = false;
+let expandedGames = new Set(); // live games with box score expanded (by matchId)
+let expandedFinalScores = new Set(); // saved score entries with box score expanded (by entry id)
+let liveBoxScores = {}; // { matchId: {away:[...players], home:[...players]} } — fetched on demand
+let lastPlayText = {}; // { gameId: "most recent play description" }
+let gameStatusTracker = {}; // { matchId: last known status } — used to detect the live->final transition
+function extractPlayerStatLine(p){
+  // Best-effort: try current-game fields first, fall back to season averages if that's
+  // all the API gives us. Field names aren't fully confirmed from public docs, so this
+  // may need a small tweak once tested against a real live game.
+  const src = p.game_stats || p.stats || p.box_score || p.current || p.season_averages || p.averages || {};
+  return {
+    name: pickField(p, ['name','player_name','full_name']) || 'Unknown',
+    pts: pickField(src, ['pts','points']) ?? '-',
+    reb: pickField(src, ['reb','rebounds']) ?? '-',
+    ast: pickField(src, ['ast','assists']) ?? '-',
+    stl: pickField(src, ['stl','steals']) ?? '-',
+    blk: pickField(src, ['blk','blocks']) ?? '-',
+    tov: pickField(src, ['tov','turnovers']) ?? '-'
+  };
+}
+function extractBoxScore(matchupData){
+  const away = (matchupData.away_team && matchupData.away_team.players || []).map(extractPlayerStatLine);
+  const home = (matchupData.home_team && matchupData.home_team.players || []).map(extractPlayerStatLine);
+  return { away, home };
+}
 
 /* ---------------- Storage: local (works on any real host, saved in this browser) ---------------- */
 const localDB = {
@@ -923,17 +947,23 @@ async function handleSaveStandings(){
 /* ---------------- Render: Scores (manual entry) ---------------- */
 function renderScores(){
   const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
-  const list = scores.length ? sortByRecency(scores).map(scoreEntryHtml).join('') : `<div class="empty-state">No scores entered yet — add the first one below.</div>`;
+  const live = liveGames.filter(isGameLive);
+  const list = scores.length ? sortByRecency(scores).map(scoreEntryHtml).join('') : `<div class="empty-state">No scores yet — live finals will land here automatically, or add one manually below.</div>`;
   return `
     <div style="padding-top:40px;">
       <p class="eyebrow">League Data</p>
-      <h2 class="section-title" style="margin-bottom:24px;">Scores</h2>
+      <h2 class="section-title" style="margin-bottom:8px;">Scores</h2>
+      <p class="form-note" style="margin-bottom:24px;">Live games (if any) show at top with the latest play and box score. Once a game ends it locks in as FINAL and stays here.</p>
+
+      ${liveLoading ? `<div class="empty-state">Loading live games…</div>` : ''}
+      ${!liveLoading && live.length>0 ? live.map(liveGameCardHtml).join('') : ''}
+      ${!liveLoading && live.length>0 ? `<div class="divider-court"></div>` : ''}
 
       ${list}
 
       <div class="divider-court"></div>
 
-      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Add a Result</h3>
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Add a Result Manually</h3>
       <form id="scoreForm" onsubmit="return handleAddScore(event)">
         <div class="row4">
           <div class="field">
@@ -970,18 +1000,23 @@ function renderScores(){
   `;
 }
 function scoreEntryHtml(s){
+  const expanded = expandedFinalScores.has(s.id);
   return `
-    <div class="score-entry">
-      <div class="score-line">
-        <span class="vs-team">${teamBadgeHtml(s.away,80)} ${s.away} <span class="score-num">${s.awayScore}</span></span>
-        <span style="color:var(--court-line-dim);">&ndash;</span>
-        <span class="vs-team"><span class="score-num">${s.homeScore}</span> ${s.home}${teamBadgeHtml(s.home,80)}</span>
+    <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+        <div class="score-line">
+          <span class="vs-team">${teamBadgeHtml(s.away,80)} ${s.away} <span class="score-num">${s.awayScore}</span></span>
+          <span style="color:var(--court-line-dim);">&ndash;</span>
+          <span class="vs-team"><span class="score-num">${s.homeScore}</span> ${s.home}${teamBadgeHtml(s.home,80)}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span class="score-status">${s.status || 'FINAL'}</span>
+          <span class="score-date">${s.date ? fmtDate(s.date) : ''}</span>
+          ${s.boxScore ? `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="toggleFinalBoxScore('${s.id}')">${expanded?'Hide':'Show'} Box Score</button>` : ''}
+          <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleDeleteScore('${s.id}')">Remove</button>
+        </div>
       </div>
-      <div style="display:flex; align-items:center; gap:16px;">
-        <span class="score-status">${s.status || 'FINAL'}</span>
-        <span class="score-date">${s.date ? fmtDate(s.date) : ''}</span>
-        <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleDeleteScore('${s.id}')">Remove</button>
-      </div>
+      ${expanded ? boxScoreTableHtml(s.boxScore, s.away, s.home) : ''}
     </div>`;
 }
 async function handleAddScore(e){
@@ -1358,18 +1393,23 @@ function renderMedia(){
   `;
 }
 
-/* ---------------- Live: fetch games, poll, flash plays, sync stats ---------------- */
+/* ---------------- Live: fetch games, poll, flash plays, auto-finalize ---------------- */
 async function fetchLiveGames(){
-  liveLoading = true;
+  liveLoading = liveGames.length===0;
   render();
   const result = await bbsFetch('/v1/nba/games?limit=25');
   liveLoading = false;
   liveGames = (result && result.data) ? result.data : [];
+  await checkForNewlyFinishedGames();
   render();
 }
 function isGameLive(g){
   const status = String(pickField(g, ['status','game_status','state']) || '').toLowerCase();
   return status.includes('progress') || status.includes('live');
+}
+function isGameFinal(g){
+  const status = String(pickField(g, ['status','game_status','state']) || '').toLowerCase();
+  return status.includes('final') || status.includes('complete') || status.includes('closed');
 }
 function gameTeamInfo(teamObj){
   return {
@@ -1381,7 +1421,7 @@ function gameTeamInfo(teamObj){
 function startLivePolling(){
   stopLivePolling();
   livePollTimer = setInterval(()=>{
-    if(currentView==='live') fetchLiveGames();
+    if(currentView==='scores') fetchLiveGames();
   }, 30000);
 }
 function stopLivePolling(){
@@ -1389,11 +1429,14 @@ function stopLivePolling(){
 }
 async function watchGamePlays(matchId, gameId){
   const result = await bbsFetch(`/v1/nba/games/${gameId}/plays`);
-  if(!result || !result.data) return;
+  if(!result || !result.data || result.data.length===0) return;
   const plays = result.data;
   if(!seenPlayIds[gameId]) seenPlayIds[gameId] = new Set();
   const seen = seenPlayIds[gameId];
   const keywords = ['three','3-pt','3pt','layup','dunk','block','steal'];
+  const mostRecent = plays[plays.length-1];
+  const mostRecentDesc = String(pickField(mostRecent, ['description','desc','text','play']) || '');
+  if(mostRecentDesc) lastPlayText[gameId] = mostRecentDesc;
   plays.forEach(p=>{
     const id = pickField(p, ['id','play_id','event_id']) ?? JSON.stringify(p).slice(0,40);
     if(seen.has(id)) return;
@@ -1404,112 +1447,100 @@ async function watchGamePlays(matchId, gameId){
       showToast(desc);
     }
   });
-}
-async function handleSyncTeamStats(matchId){
-  showToast('Syncing stats…');
-  const result = await bbsFetch(`/v1/nba/games/${matchId}/matchup`);
-  if(!result || !result.data){ showToast('Could not sync — try again later'); return; }
-  const data = result.data;
-  const sides = [data.home_team, data.away_team].filter(Boolean);
-  let synced = 0;
-  sides.forEach(side=>{
-    const teamAbbr = pickField(side, ['abbreviation','tricode','abbr','code']);
-    const players = side.players || [];
-    players.forEach(p=>{
-      const name = pickField(p, ['name','player_name','full_name']);
-      const avg = p.season_averages || p.averages || {};
-      const totals = p.season_totals || p.totals || {};
-      if(!name || !teamAbbr) return;
-      const fieldMap = [
-        ['ppg', pickField(avg, ['pts','points','ppg'])],
-        ['rpg', pickField(avg, ['reb','rebounds','rpg'])],
-        ['apg', pickField(avg, ['ast','assists','apg'])],
-        ['spg', pickField(avg, ['stl','steals','spg'])],
-        ['bpg', pickField(avg, ['blk','blocks','bpg'])],
-        ['topg', pickField(avg, ['tov','turnovers'])],
-        ['tpg', pickField(avg, ['fg3m','three_pm','tpm'])],
-        ['twopg', pickField(avg, ['fg2m','two_pm'])],
-        ['pts_tot', pickField(totals, ['pts','points'])],
-        ['reb_tot', pickField(totals, ['reb','rebounds'])],
-        ['ast_tot', pickField(totals, ['ast','assists'])],
-        ['stl_tot', pickField(totals, ['stl','steals'])],
-        ['blk_tot', pickField(totals, ['blk','blocks'])],
-        ['tov_tot', pickField(totals, ['tov','turnovers'])],
-        ['tpm_tot', pickField(totals, ['fg3m','three_pm'])],
-        ['twopm_tot', pickField(totals, ['fg2m','two_pm'])]
-      ];
-      fieldMap.forEach(([catKey, value])=>{
-        if(value === undefined || value === null) return;
-        const all = localDB.get('stat-leaders:'+activeSeason) || {};
-        const list = all[catKey] || [];
-        const existingIdx = list.findIndex(e=>e.player.toLowerCase()===name.toLowerCase() && e.team===teamAbbr);
-        const entry = { id: existingIdx>-1 ? list[existingIdx].id : 'sync-'+catKey+'-'+name.replace(/\s+/g,'_'), player:name, team:teamAbbr, value:parseFloat(value) };
-        if(existingIdx>-1) list[existingIdx] = entry; else list.push(entry);
-        all[catKey] = list;
-        localDB.set('stat-leaders:'+activeSeason, all);
-      });
-      synced++;
-    });
-  });
-  loadStatLeaders();
-  showToast(synced+' players synced');
   render();
 }
-function renderLive(){
-  const live = liveGames.filter(isGameLive);
-  const others = liveGames.filter(g=>!isGameLive(g)).slice(0,10);
+async function toggleGameBoxScore(matchId){
+  if(expandedGames.has(matchId)){
+    expandedGames.delete(matchId);
+    render();
+    return;
+  }
+  expandedGames.add(matchId);
+  render();
+  if(!liveBoxScores[matchId]){
+    const result = await bbsFetch(`/v1/nba/games/${matchId}/matchup`);
+    if(result && result.data) liveBoxScores[matchId] = extractBoxScore(result.data);
+    render();
+  }
+}
+function toggleFinalBoxScore(entryId){
+  if(expandedFinalScores.has(entryId)) expandedFinalScores.delete(entryId);
+  else expandedFinalScores.add(entryId);
+  render();
+}
+async function checkForNewlyFinishedGames(){
+  for(const g of liveGames){
+    const matchId = pickField(g, ['match_id','id']);
+    if(!matchId) continue;
+    const status = String(pickField(g, ['status','game_status','state']) || '').toLowerCase();
+    const prevStatus = gameStatusTracker[matchId];
+    gameStatusTracker[matchId] = status;
+    const alreadySaved = scores.some(s=>s.sourceId===matchId);
+    if(isGameFinal(g) && prevStatus && prevStatus!==status && !alreadySaved){
+      await autoFinalizeGame(g, matchId);
+    } else if(isGameFinal(g) && !alreadySaved && !prevStatus){
+      // First time we've seen this game and it's already final (e.g. page just opened) — save it too.
+      await autoFinalizeGame(g, matchId);
+    }
+  }
+}
+async function autoFinalizeGame(g, matchId){
+  const home = gameTeamInfo(g.home_team||{});
+  const away = gameTeamInfo(g.away_team||{});
+  let boxScore = null;
+  const result = await bbsFetch(`/v1/nba/games/${matchId}/matchup`);
+  if(result && result.data) boxScore = extractBoxScore(result.data);
+  const entry = {
+    id: 's-'+Date.now()+'-'+matchId,
+    sourceId: matchId,
+    away: away.abbr, awayScore: away.score,
+    home: home.abbr, homeScore: home.score,
+    status: 'FINAL',
+    date: new Date().toISOString().slice(0,10),
+    boxScore
+  };
+  saveNewScore(entry);
+  showToast(`${away.abbr} ${away.score} – ${home.score} ${home.abbr} FINAL`);
+}
+function boxScoreTableHtml(boxScore, awayAbbr, homeAbbr){
+  if(!boxScore) return `<div class="form-note" style="padding:10px 0;">Box score unavailable.</div>`;
+  const col = (players, abbr) => `
+    <div style="flex:1; min-width:200px;">
+      <div class="form-note" style="color:var(--paper); font-family:'Anton',sans-serif; font-size:12px; letter-spacing:.06em; margin-bottom:8px;">${abbr}</div>
+      ${players.length ? players.map(p=>`
+        <div style="display:flex; justify-content:space-between; padding:5px 0; border-top:1px dotted var(--ink-line); font-size:12px;">
+          <span style="color:var(--court-line);">${p.name}</span>
+          <span class="mono" style="color:var(--paper-dim);">${p.pts}p ${p.reb}r ${p.ast}a ${p.stl}s ${p.blk}b ${p.tov}to</span>
+        </div>`).join('') : `<div class="form-note" style="padding:6px 0;">No player data.</div>`}
+    </div>`;
+  return `<div style="display:flex; gap:24px; flex-wrap:wrap; padding:14px 0 4px;">${col(boxScore.away, awayAbbr)}${col(boxScore.home, homeAbbr)}</div>`;
+}
+function liveGameCardHtml(g){
+  const home = gameTeamInfo(g.home_team||{});
+  const away = gameTeamInfo(g.away_team||{});
+  const period = pickField(g, ['period','quarter','current_period']) || '';
+  const clock = pickField(g, ['clock','game_clock','time_remaining']) || '';
+  const matchId = pickField(g, ['match_id','id']);
+  const gameId = pickField(g, ['game_id','nba_game_id']);
+  if(matchId && gameId) watchGamePlays(matchId, gameId);
+  const expanded = matchId && expandedGames.has(matchId);
   return `
-    <div style="padding-top:40px;">
-      <p class="eyebrow">Live</p>
-      <h2 class="section-title" style="margin-bottom:8px;">Live Games</h2>
-      <p class="form-note" style="margin-bottom:24px;">Auto-refreshes every 30 seconds while this page is open. Scoring plays, blocks, and steals flash as toast notifications when detected.</p>
-
-      ${liveLoading ? `<div class="empty-state">Loading…</div>` : ''}
-
-      ${!liveLoading && live.length===0 ? `<div class="empty-state" style="margin-bottom:24px;">No games live right now.</div>` : ''}
-
-      ${live.map(g=>{
-        const home = gameTeamInfo(g.home_team||{});
-        const away = gameTeamInfo(g.away_team||{});
-        const period = pickField(g, ['period','quarter','current_period']) || '';
-        const clock = pickField(g, ['clock','game_clock','time_remaining']) || '';
-        const matchId = pickField(g, ['match_id','id']);
-        const gameId = pickField(g, ['game_id','nba_game_id']);
-        if(matchId && gameId) watchGamePlays(matchId, gameId);
-        return `
-          <div class="score-entry" style="margin-bottom:16px;">
-            <div class="score-line">
-              <span class="vs-team">${away.abbr} <span class="score-num">${away.score}</span></span>
-              <span style="color:var(--court-line-dim);">&ndash;</span>
-              <span class="vs-team"><span class="score-num">${home.score}</span> ${home.abbr}</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:14px;">
-              <span class="score-status" style="color:var(--buzzer);">● LIVE</span>
-              <span class="score-date">${period ? 'Q'+period : ''} ${clock}</span>
-              ${matchId ? `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleSyncTeamStats('${matchId}')">Sync Team Stats</button>` : ''}
-            </div>
-          </div>`;
-      }).join('')}
-
-      ${others.length ? `
-        <div class="divider-court"></div>
-        <h3 class="section-title" style="font-size:18px; margin-bottom:14px;">Other Games</h3>
-        ${others.map(g=>{
-          const home = gameTeamInfo(g.home_team||{});
-          const away = gameTeamInfo(g.away_team||{});
-          const status = pickField(g, ['status','game_status','state']) || '';
-          return `<div class="score-entry" style="margin-bottom:10px;">
-            <div class="score-line">
-              <span class="vs-team">${away.abbr} <span class="score-num">${away.score}</span></span>
-              <span style="color:var(--court-line-dim);">&ndash;</span>
-              <span class="vs-team"><span class="score-num">${home.score}</span> ${home.abbr}</span>
-            </div>
-            <span class="score-status">${status}</span>
-          </div>`;
-        }).join('')}
-      ` : ''}
-    </div>
-  `;
+    <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+        <div class="score-line">
+          <span class="vs-team">${away.abbr} <span class="score-num">${away.score}</span></span>
+          <span style="color:var(--court-line-dim);">&ndash;</span>
+          <span class="vs-team"><span class="score-num">${home.score}</span> ${home.abbr}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <span class="score-status" style="color:var(--buzzer);">● LIVE</span>
+          <span class="score-date">${period ? 'Q'+period : ''} ${clock}</span>
+          ${matchId ? `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="toggleGameBoxScore('${matchId}')">${expanded?'Hide':'Show'} Box Score</button>` : ''}
+        </div>
+      </div>
+      ${gameId && lastPlayText[gameId] ? `<div class="form-note" style="color:var(--court-line);">Latest: ${lastPlayText[gameId]}</div>` : ''}
+      ${expanded ? boxScoreTableHtml(liveBoxScores[matchId], away.abbr, home.abbr) : ''}
+    </div>`;
 }
 
 /* ---------------- Render: Find Your Team ---------------- */
@@ -1749,7 +1780,6 @@ function render(){
   else if(currentView==='trades'){ app.innerHTML = renderTrades(); initTradeForm(); }
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
-  else if(currentView==='live') app.innerHTML = renderLive();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
   else if(currentView==='team') app.innerHTML = renderTeamPage(currentTeam);
   else if(currentView==='publish') app.innerHTML = renderPublish();
@@ -1763,8 +1793,7 @@ function render(){
 }
 function go(view){
   currentView = view;
-  if(view==='live'){
-    liveLoading = true;
+  if(view==='scores'){
     render();
     fetchLiveGames();
     startLivePolling();
