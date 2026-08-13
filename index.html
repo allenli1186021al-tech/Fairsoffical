@@ -448,13 +448,17 @@ const STAT_CATEGORIES = [
   {key:'apg', label:'Assists', mode:'per_game', unit:'APG'},
   {key:'spg', label:'Steals', mode:'per_game', unit:'SPG'},
   {key:'bpg', label:'Blocks', mode:'per_game', unit:'BPG'},
+  {key:'topg', label:'Turnovers', mode:'per_game', unit:'TOV/G'},
   {key:'tpg', label:'3-Pointers Made', mode:'per_game', unit:'3PM/G'},
+  {key:'twopg', label:'2-Pointers Made', mode:'per_game', unit:'2PM/G'},
   {key:'pts_tot', label:'Points', mode:'total', unit:'PTS'},
   {key:'reb_tot', label:'Rebounds', mode:'total', unit:'REB'},
   {key:'ast_tot', label:'Assists', mode:'total', unit:'AST'},
   {key:'stl_tot', label:'Steals', mode:'total', unit:'STL'},
   {key:'blk_tot', label:'Blocks', mode:'total', unit:'BLK'},
-  {key:'tpm_tot', label:'3-Pointers Made', mode:'total', unit:'3PM'}
+  {key:'tov_tot', label:'Turnovers', mode:'total', unit:'TOV'},
+  {key:'tpm_tot', label:'3-Pointers Made', mode:'total', unit:'3PM'},
+  {key:'twopm_tot', label:'2-Pointers Made', mode:'total', unit:'2PM'}
 ];
 
 /* ---------------- Storage: seasons ---------------- */
@@ -1371,9 +1375,8 @@ function renderTeamPage(team){
 
   const roster = rosters[team] || [];
 
-  const leaderCats = STAT_CATEGORIES.filter(c=>c.mode==='per_game');
-  const teamLeaderBoxes = leaderCats.map(cat=>{
-    const entries = (statLeaders[cat.key]||[]).filter(e=>e.team===team).sort((a,b)=>b.value-a.value).slice(0,5);
+  const buildLeaderBoxes = (mode) => STAT_CATEGORIES.filter(c=>c.mode===mode).map(cat=>{
+    const entries = (statLeaders[cat.key]||[]).filter(e=>e.team===team).sort((a,b)=>b.value-a.value);
     if(entries.length===0) return '';
     return `
       <div class="leader-box">
@@ -1385,6 +1388,8 @@ function renderTeamPage(team){
           </div>`).join('')}
       </div>`;
   }).join('');
+  const perGameBoxes = buildLeaderBoxes('per_game');
+  const totalBoxes = buildLeaderBoxes('total');
 
   return `
     <div style="padding-top:36px;">
@@ -1444,7 +1449,13 @@ function renderTeamPage(team){
       <div class="divider-court"></div>
 
       <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Team Leaders</h3>
-      ${teamLeaderBoxes.trim() ? `<div class="leaders-grid">${teamLeaderBoxes}</div>` : `<div class="empty-state">No stat leader entries for this team's players yet.</div>`}
+      ${(perGameBoxes.trim() || totalBoxes.trim()) ? `
+        <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:0 0 14px;">Per Game</h4>
+        ${perGameBoxes.trim() ? `<div class="leaders-grid">${perGameBoxes}</div>` : `<div class="empty-state" style="padding:16px 0;">No per-game entries for this team's players yet.</div>`}
+        <div class="divider-court"></div>
+        <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:0 0 14px;">Totals</h4>
+        ${totalBoxes.trim() ? `<div class="leaders-grid">${totalBoxes}</div>` : `<div class="empty-state" style="padding:16px 0;">No season-total entries for this team's players yet.</div>`}
+      ` : `<div class="empty-state">No stat leader entries for this team's players yet.</div>`}
     </div>
   `;
 }
