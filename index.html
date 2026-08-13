@@ -58,6 +58,17 @@
   }
   nav.main button:hover{color:var(--paper);}
   nav.main button.active{color:var(--ink); background:var(--court-line);}
+  .nav-team-wrap{position:relative; display:inline-block;}
+  .nav-team-dropdown{
+    position:absolute; top:100%; left:0; margin-top:8px;
+    background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:3px;
+    padding:16px; display:none; grid-template-columns:repeat(6,54px); gap:12px;
+    z-index:80; box-shadow:0 16px 38px rgba(0,0,0,.5); max-width:420px;
+  }
+  .nav-team-wrap:hover .nav-team-dropdown{ display:grid; }
+  .nav-team-cell{display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer;}
+  .nav-team-cell .abbr{font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--court-line-dim); transition:color .15s;}
+  .nav-team-cell:hover .abbr{color:var(--paper);}
   .publish-btn{ background:var(--buzzer)!important; color:var(--paper)!important; }
   .publish-btn:hover{ filter:brightness(1.1); color:var(--paper)!important;}
 
@@ -296,6 +307,10 @@
     </a>
     <nav class="main">
       <button data-v="home" class="display">Home</button>
+      <div class="nav-team-wrap">
+        <button data-v="teams" class="display">Find Your Team</button>
+        <div class="nav-team-dropdown" id="navTeamDropdown"></div>
+      </div>
       <button data-v="scores" class="display">Scores</button>
       <button data-v="moves" class="display">Free Agency</button>
       <button data-v="trades" class="display">Trades</button>
@@ -345,6 +360,8 @@ let seasons = []; // list of season labels, e.g. "2025-26"
 let activeSeason = '';
 let teamLogos = {}; // { TEAM: dataUrl }
 let playerPhotos = {}; // { normalizedName: {name, photo:dataUrl} }
+let rosters = {}; // { TEAM: [{id, name, number, position}] }
+let currentTeam = null;
 let currentView = 'home';
 let currentArticleId = null;
 let currentConf = 'east';
@@ -526,6 +543,21 @@ function saveStandings(updated){
 /* ---------------- Storage: uploaded team logos & player photos ---------------- */
 function loadTeamLogos(){ teamLogos = localDB.get('team-logos') || {}; }
 function loadPlayerPhotos(){ playerPhotos = localDB.get('player-photos') || {}; }
+function loadRosters(){ rosters = localDB.get('rosters') || {}; }
+function addRosterPlayer(team, entry){
+  const all = localDB.get('rosters') || {};
+  const list = all[team] || [];
+  list.push(entry);
+  all[team] = list;
+  localDB.set('rosters', all);
+  rosters = all;
+}
+function removeRosterPlayer(team, id){
+  const all = localDB.get('rosters') || {};
+  all[team] = (all[team]||[]).filter(p=>p.id!==id);
+  localDB.set('rosters', all);
+  rosters = all;
+}
 function resizeImageToDataUrl(file, size, mode, callback){
   const reader = new FileReader();
   reader.onload = function(e){
@@ -545,8 +577,9 @@ function resizeImageToDataUrl(file, size, mode, callback){
         // Crop to fill the square — right for headshots/portraits.
         const scale = Math.max(size/img.width, size/img.height);
         const w = img.width*scale, h = img.height*scale;
+        ctx.clearRect(0,0,size,size);
         ctx.drawImage(img, (size-w)/2, (size-h)/2, w, h);
-        callback(canvas.toDataURL('image/jpeg', 0.85));
+        callback(canvas.toDataURL('image/png'));
       }
     };
     img.onerror = function(){ showToast('Could not read that image'); };
@@ -1286,6 +1319,151 @@ function renderMedia(){
   `;
 }
 
+/* ---------------- Render: Find Your Team ---------------- */
+function renderNavTeamDropdown(){
+  const container = document.getElementById('navTeamDropdown');
+  if(!container) return;
+  const allTeams = [...WEST_TEAMS, ...EAST_TEAMS].slice().sort();
+  container.innerHTML = allTeams.map(t=>`
+    <div class="nav-team-cell" onclick="openTeamPage('${t}')">
+      ${teamBadgeHtml(t,40)}
+      <span class="abbr">${t}</span>
+    </div>`).join('');
+}
+function openTeamPage(team){
+  currentTeam = team;
+  currentView = 'team';
+  render();
+}
+function renderTeamHubPage(){
+  const allWest = [...WEST_TEAMS].sort((a,b)=>TEAM_NAMES[a].localeCompare(TEAM_NAMES[b]));
+  const allEast = [...EAST_TEAMS].sort((a,b)=>TEAM_NAMES[a].localeCompare(TEAM_NAMES[b]));
+  const teamGridHtml = (list) => `
+    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:22px;">
+      ${list.map(t=>`
+        <div style="text-align:center; cursor:pointer;" onclick="openTeamPage('${t}')">
+          ${teamBadgeHtml(t,64)}
+          <div class="form-note" style="margin-top:8px; color:var(--paper);">${TEAM_NAMES[t]}</div>
+        </div>`).join('')}
+    </div>`;
+  return `
+    <div style="padding-top:40px;">
+      <p class="eyebrow">League Data</p>
+      <h2 class="section-title" style="margin-bottom:8px;">Find Your Team</h2>
+      <p class="form-note" style="margin-bottom:28px;">Click a team for their news, transactions, roster, and stat leaders.</p>
+      <h3 class="section-title" style="font-size:18px; margin-bottom:14px;">Eastern Conference</h3>
+      ${teamGridHtml(allEast)}
+      <div class="divider-court"></div>
+      <h3 class="section-title" style="font-size:18px; margin-bottom:14px;">Western Conference</h3>
+      ${teamGridHtml(allWest)}
+    </div>
+  `;
+}
+function renderTeamPage(team){
+  if(!team) return `<p style="padding-top:60px;">No team selected. <a class="back-link" onclick="go('teams')">&larr; Find Your Team</a></p>`;
+  const s = standings[team] || {w:0,l:0};
+  const conf = WEST_TEAMS.includes(team) ? 'Western' : 'Eastern';
+
+  const teamArticles = sortByRecency(articles.filter(a=>a.team===team)).slice(0,4);
+  const teamMoves = moves.filter(m=>m.from===team||m.to===team).map(m=>({...m,_type:'move'}));
+  const teamTrades = trades.filter(t=>(t.teams||[]).some(side=>side.team===team)).map(t=>({...t,_type:'trade'}));
+  const teamTransactions = sortByRecency([...teamMoves, ...teamTrades]).slice(0,5);
+
+  const roster = rosters[team] || [];
+
+  const leaderCats = STAT_CATEGORIES.filter(c=>c.mode==='per_game');
+  const teamLeaderBoxes = leaderCats.map(cat=>{
+    const entries = (statLeaders[cat.key]||[]).filter(e=>e.team===team).sort((a,b)=>b.value-a.value).slice(0,5);
+    if(entries.length===0) return '';
+    return `
+      <div class="leader-box">
+        <h4>${cat.label} <span style="color:var(--hardwood);">· ${cat.unit}</span></h4>
+        ${entries.map((e,i)=>`
+          <div class="leader-row">
+            <span class="who"><span class="rank">${i+1}</span>${playerPhotoHtml(e.player,26)}${e.player}</span>
+            <span class="val">${e.value}</span>
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+
+  return `
+    <div style="padding-top:36px;">
+      <a class="back-link" onclick="go('teams')">&larr; Find Your Team</a>
+      <div style="display:flex; align-items:center; gap:20px; margin:14px 0 8px;">
+        ${teamBadgeHtml(team,80)}
+        <div>
+          <h1 class="hero-headline" style="margin:0; font-size:clamp(28px,4vw,44px);">${TEAM_NAMES[team]}</h1>
+          <p class="hero-meta" style="margin-top:6px;">${conf}ern Conference · ${s.w}-${s.l}</p>
+        </div>
+      </div>
+
+      <div class="divider-court"></div>
+
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Recent News</h3>
+      ${teamArticles.length ? `<div class="article-grid">${teamArticles.map(cardHtml).join('')}</div>` : `<div class="empty-state">No articles tagged for this team yet.</div>`}
+
+      <div class="divider-court"></div>
+
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Recent Transactions</h3>
+      ${teamTransactions.length ? teamTransactions.map(t=> t._type==='move' ? moveEntryHtml(t) : tradeCardHtml(t)).join('') : `<div class="empty-state">No trades or free agency moves recorded for this team yet.</div>`}
+
+      <div class="divider-court"></div>
+
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Roster</h3>
+      ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:22px;">
+        ${roster.map(p=>`
+          <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; min-width:170px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              ${playerPhotoHtml(p.name,44)}
+              <div>
+                <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
+                <div class="form-note" style="margin:0;">${p.position||''}${p.number?' · #'+p.number:''}</div>
+              </div>
+            </div>
+            <button class="ghost-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveRosterPlayer('${team}','${p.id}')">Remove</button>
+          </div>`).join('')}
+      </div>` : `<div class="empty-state" style="margin-bottom:22px;">No roster added yet.</div>`}
+      <form onsubmit="return handleAddRosterPlayer(event,'${team}')">
+        <div class="row2">
+          <div class="field">
+            <label>Player Name</label>
+            <input type="text" id="roster-name" required maxlength="60" placeholder="e.g. Trae Young">
+          </div>
+          <div class="field">
+            <label>Position</label>
+            <input type="text" id="roster-position" maxlength="20" placeholder="e.g. PG">
+          </div>
+        </div>
+        <div class="field" style="max-width:160px;">
+          <label>Jersey #</label>
+          <input type="number" id="roster-number" min="0" max="99">
+        </div>
+        <button type="submit" class="submit-btn">Add to Roster</button>
+      </form>
+
+      <div class="divider-court"></div>
+
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Team Leaders</h3>
+      ${teamLeaderBoxes.trim() ? `<div class="leaders-grid">${teamLeaderBoxes}</div>` : `<div class="empty-state">No stat leader entries for this team's players yet.</div>`}
+    </div>
+  `;
+}
+function handleAddRosterPlayer(e, team){
+  e.preventDefault();
+  const name = document.getElementById('roster-name').value.trim();
+  const position = document.getElementById('roster-position').value.trim();
+  const number = document.getElementById('roster-number').value;
+  addRosterPlayer(team, { id:'r-'+Date.now(), name, position, number });
+  showToast('Player added to roster');
+  render();
+  return false;
+}
+function handleRemoveRosterPlayer(team, id){
+  removeRosterPlayer(team, id);
+  showToast('Removed from roster');
+  render();
+}
+
 /* ---------------- Render: Article detail ---------------- */
 function renderArticle(){
   const a = articles.find(x=>x.id===currentArticleId);
@@ -1371,12 +1549,15 @@ function render(){
   else if(currentView==='trades'){ app.innerHTML = renderTrades(); initTradeForm(); }
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
+  else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
+  else if(currentView==='team') app.innerHTML = renderTeamPage(currentTeam);
   else if(currentView==='publish') app.innerHTML = renderPublish();
   else if(currentView==='article') app.innerHTML = renderArticle();
 
   document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
-    b.classList.toggle('active', b.dataset.v===currentView);
+    b.classList.toggle('active', b.dataset.v===currentView || (currentView==='team' && b.dataset.v==='teams'));
   });
+  renderNavTeamDropdown();
   window.scrollTo({top:0, behavior:'instant'});
 }
 function go(view){ currentView = view; render(); }
@@ -1395,6 +1576,7 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   loadTrades();
   loadTeamLogos();
   loadPlayerPhotos();
+  loadRosters();
   loadSeasons();
   loadStatLeaders();
   loadStandings();
