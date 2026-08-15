@@ -60,7 +60,7 @@
   nav.main button.active{color:var(--ink); background:var(--court-line);}
   .nav-team-wrap{position:relative; display:inline-block;}
   .nav-team-dropdown{
-    position:absolute; top:100%; left:0; margin-top:8px;
+    position:absolute; top:100%; left:0;
     background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:3px;
     padding:16px; display:none; grid-template-columns:repeat(6,54px); gap:12px;
     z-index:80; box-shadow:0 16px 38px rgba(0,0,0,.5); max-width:420px;
@@ -852,9 +852,12 @@ function renderHome(){
 }
 
 function cardHtml(a){
+  const artHtml = a.image
+    ? `<div class="card-art" style="padding:0;"><img src="${a.image}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"></div>`
+    : `<div class="card-art" style="${cardBg(a.team)}">${a.art}</div>`;
   return `
     <div class="card" onclick="openArticle('${a.id}')">
-      <div class="card-art" style="${cardBg(a.team)}">${a.art}</div>
+      ${artHtml}
       <div class="card-body">
         <span class="tag">${a.team}</span>
         <h4>${a.title}</h4>
@@ -1706,8 +1709,11 @@ function renderArticle(){
       <p class="eyebrow">${a.team}</p>
       <h1>${a.title}</h1>
       <p class="meta">${a.author} · ${fmtDate(a.date)}</p>
-      <div class="art-cap" style="${cardBg(a.team)}">${a.art}</div>
+      ${a.image
+        ? `<div class="art-cap" style="padding:0; overflow:hidden;"><img src="${a.image}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"></div>`
+        : `<div class="art-cap" style="${cardBg(a.team)}">${a.art}</div>`}
       <div class="body-copy">${paras}</div>
+      ${a.sourceUrl ? `<p class="form-note" style="margin-top:24px; padding-top:18px; border-top:1px solid var(--ink-line);">Based on reporting${a.sourceName?' from '+a.sourceName:''} — <a href="${a.sourceUrl}" target="_blank" rel="noopener" style="color:var(--hardwood);">read the full original story →</a></p>` : ''}
     </div>
   `;
 }
@@ -1718,7 +1724,20 @@ function renderPublish(){
   return `
     <div class="publish-panel" style="padding-top:40px;">
       <p class="eyebrow">Newsroom</p>
-      <h2 class="section-title" style="margin-bottom:26px;">Publish an Article</h2>
+      <h2 class="section-title" style="margin-bottom:10px;">Publish an Article</h2>
+      <p class="form-note" style="margin-bottom:22px;">Paste a link to auto-fill the headline, photo, and source — then write your own take in the body below.</p>
+
+      <div class="row2" style="align-items:end; margin-bottom:8px;">
+        <div class="field" style="margin-bottom:0;">
+          <label>Paste a Link</label>
+          <input type="url" id="f-link-input" placeholder="https://www.espn.com/...">
+        </div>
+        <button type="button" class="ghost-btn" style="height:44px;" id="fetchLinkBtn" onclick="handleFetchLinkPreview()">Fetch Preview</button>
+      </div>
+      <div id="linkPreviewBox"></div>
+
+      <div class="divider-court"></div>
+
       <form id="publishForm" onsubmit="return handlePublish(event)">
         <div class="field">
           <label>Headline</label>
@@ -1740,13 +1759,52 @@ function renderPublish(){
         </div>
         <div class="field">
           <label>Article Body</label>
-          <textarea id="f-content" required placeholder="Write the full article. Separate paragraphs with a blank line."></textarea>
+          <textarea id="f-content" required placeholder="Write your own summary/take. Separate paragraphs with a blank line. If this is based on an outside story, write it in your own words — don't paste the original article text."></textarea>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Source Name (optional)</label>
+            <input type="text" id="f-source-name" maxlength="60" placeholder="e.g. ESPN">
+          </div>
+          <div class="field">
+            <label>Source URL (optional)</label>
+            <input type="url" id="f-source-url" placeholder="https://...">
+          </div>
         </div>
         <button type="submit" class="submit-btn" id="submitBtn">Publish Article</button>
-        <p class="form-note">Published articles are stored and visible to everyone who opens this page — there's no login, so treat it like a shared, public newsroom.</p>
+        <p class="form-note">Published articles are stored and visible to everyone who opens this page — there's no login, so treat it like a shared, public newsroom. If you're referencing an outside story, add a Source link so readers can read the full original — don't copy-paste the original text in, that's their copyrighted work, not yours to republish.</p>
       </form>
     </div>
   `;
+}
+let fetchedArticleImage = null;
+async function handleFetchLinkPreview(){
+  const btn = document.getElementById('fetchLinkBtn');
+  const url = document.getElementById('f-link-input').value.trim();
+  if(!url){ showToast('Paste a link first'); return; }
+  btn.disabled = true; btn.textContent = 'Fetching…';
+  try{
+    const res = await fetch('https://api.microlink.io?url=' + encodeURIComponent(url));
+    const json = await res.json();
+    if(json.status !== 'success'){ throw new Error('bad response'); }
+    const d = json.data;
+    document.getElementById('f-title').value = d.title || '';
+    document.getElementById('f-dek').value = (d.description || '').slice(0,160);
+    document.getElementById('f-source-name').value = (d.publisher || d.author || '') ;
+    document.getElementById('f-source-url').value = url;
+    fetchedArticleImage = d.image && d.image.url ? d.image.url : null;
+    const box = document.getElementById('linkPreviewBox');
+    box.innerHTML = fetchedArticleImage
+      ? `<div style="margin:12px 0; display:flex; gap:14px; align-items:center;"><img src="${fetchedArticleImage}" style="width:90px;height:60px;object-fit:cover;border-radius:2px;"><span class="form-note">Preview image will be used as the article's photo.</span></div>`
+      : `<p class="form-note" style="margin:10px 0;">No preview image found on that page — headline and source were still filled in.</p>`;
+    if(!document.getElementById('f-content').value.trim()){
+      document.getElementById('f-content').placeholder = 'Write your own take on this story in your own words — don\'t paste the original article text.';
+    }
+    showToast('Preview loaded — write your own take below');
+  }catch(err){
+    showToast('Could not fetch a preview for that link');
+  }
+  btn.disabled = false; btn.textContent = 'Fetch Preview';
 }
 async function handlePublish(e){
   e.preventDefault();
@@ -1757,14 +1815,19 @@ async function handlePublish(e){
   const author = document.getElementById('f-author').value.trim() || 'Newsroom';
   const dek = document.getElementById('f-dek').value.trim();
   const content = document.getElementById('f-content').value.trim();
+  const sourceName = document.getElementById('f-source-name').value.trim();
+  const sourceUrl = document.getElementById('f-source-url').value.trim();
   const icons = ['🏀','📰','🎯','📈','🔥','🧠'];
   const article = {
     id: 'a-'+Date.now(),
     title, team, author, dek, content,
+    sourceName, sourceUrl,
+    image: fetchedArticleImage,
     date: new Date().toISOString().slice(0,10),
     art: icons[Math.floor(Math.random()*icons.length)]
   };
   saveNewArticle(article);
+  fetchedArticleImage = null;
   showToast('Article published');
   go('home');
   return false;
