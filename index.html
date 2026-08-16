@@ -314,6 +314,7 @@
       <button data-v="scores" class="display">Scores</button>
       <button data-v="moves" class="display">Free Agency</button>
       <button data-v="trades" class="display">Trades</button>
+      <button data-v="draft" class="display">Draft</button>
       <button data-v="leaders" class="display">Stat Leaders</button>
       <button data-v="media" class="display">Photos</button>
       <button data-v="standings" class="display">Standings</button>
@@ -354,6 +355,7 @@ let articles = [];
 let scores = [];
 let moves = [];
 let trades = [];
+let draftPicks = [];
 let statLeaders = {}; // { categoryKey: [{id, player, team, value}] }
 let standings = {}; // { TEAM: {w, l} }
 let seasons = []; // list of season labels, e.g. "2025-26"
@@ -568,6 +570,7 @@ function setActiveSeason(label){
   localDB.set('active-season', label);
   loadStandings();
   loadStatLeaders();
+  loadDraft();
 }
 
 /* ---------------- Storage: stat leaders (scoped per season) ---------------- */
@@ -601,6 +604,22 @@ function loadStandings(){
 function saveStandings(updated){
   localDB.set('standings:'+activeSeason, updated);
   standings = updated;
+}
+
+/* ---------------- Storage: draft (scoped per season) ---------------- */
+function loadDraft(){
+  draftPicks = localDB.get('draft:'+activeSeason) || [];
+}
+function saveNewDraftPick(entry){
+  const stored = localDB.get('draft:'+activeSeason) || [];
+  stored.push(entry);
+  localDB.set('draft:'+activeSeason, stored);
+  draftPicks = stored;
+}
+function deleteDraftPick(id){
+  const stored = (localDB.get('draft:'+activeSeason) || []).filter(p=>p.id!==id);
+  localDB.set('draft:'+activeSeason, stored);
+  draftPicks = stored;
 }
 
 /* ---------------- Storage: uploaded team logos & player photos ---------------- */
@@ -1132,6 +1151,120 @@ async function handleAddMove(e){
 function handleDeleteMove(id){
   deleteMove(id);
   showToast('Move removed');
+  render();
+}
+
+/* ---------------- Render: Draft ---------------- */
+function renderDraft(){
+  const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
+  const sorted = [...draftPicks].sort((a,b)=> (a.round-b.round) || (a.pickInRound-b.pickInRound));
+  const round1 = sorted.filter(p=>p.round===1);
+  const round2 = sorted.filter(p=>p.round===2);
+  const roundSection = (title, picks) => `
+    <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">${title}</h3>
+    ${picks.length ? picks.map(draftPickHtml).join('') : `<div class="empty-state" style="padding:20px 0; margin-bottom:20px;">No picks added for this round yet.</div>`}
+  `;
+  return `
+    <div style="padding-top:40px;">
+      <p class="eyebrow">League Data</p>
+      <h2 class="section-title" style="margin-bottom:16px;">Draft</h2>
+      ${seasonSelectorHtml()}
+
+      ${roundSection('Round 1', round1)}
+      <div class="divider-court"></div>
+      ${roundSection('Round 2', round2)}
+
+      <div class="divider-court"></div>
+
+      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Add a Pick</h3>
+      <form id="draftForm" onsubmit="return handleAddDraftPick(event)">
+        <div class="row2">
+          <div class="field">
+            <label>Round</label>
+            <select id="d-round">
+              <option value="1">Round 1</option>
+              <option value="2">Round 2</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Pick #</label>
+            <input type="number" id="d-pick" min="1" max="30" required placeholder="e.g. 5">
+          </div>
+        </div>
+        <div class="field">
+          <label>Player Name</label>
+          <input type="text" id="d-player" required maxlength="60" placeholder="e.g. Cooper Flagg">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Position</label>
+            <input type="text" id="d-position" maxlength="20" placeholder="e.g. SF">
+          </div>
+          <div class="field">
+            <label>College</label>
+            <input type="text" id="d-college" maxlength="60" placeholder="e.g. Duke">
+          </div>
+        </div>
+        <div class="field">
+          <label>Drafted By (team that made the pick)</label>
+          <select id="d-drafted-by">${teamOptions}</select>
+        </div>
+        <div class="field">
+          <label>Originally Whose Pick? (optional — leave as-is if no trade involved)</label>
+          <select id="d-original-team">
+            <option value="">Same as drafting team</option>
+            ${teamOptions}
+          </select>
+        </div>
+        <div class="field">
+          <label>How the Pick Got There (optional)</label>
+          <input type="text" id="d-trade-note" maxlength="140" placeholder="e.g. Acquired from LAL in exchange for a 2026 2nd-rounder">
+        </div>
+        <button type="submit" class="submit-btn" id="draftSubmitBtn">Add Pick</button>
+        <p class="form-note">Entries are stored and visible to everyone who opens this page.</p>
+      </form>
+    </div>
+  `;
+}
+function draftPickHtml(p){
+  const hasTradeNote = p.originalTeam && p.originalTeam !== p.draftedBy;
+  return `
+    <div class="move-entry">
+      <div class="move-main">
+        <span class="move-contract" style="font-size:14px;">#${p.pickInRound}</span>
+        ${teamBadgeHtml(p.draftedBy,32)}
+        <span class="move-player">${playerPhotoHtml(p.player,32)}${p.player}</span>
+        <span class="move-path">${p.position||''}${p.position&&p.college?' · ':''}${p.college||''}</span>
+      </div>
+      <div class="move-side">
+        ${hasTradeNote ? `<span class="form-note" style="max-width:280px; text-align:right;">Originally ${TEAM_NAMES[p.originalTeam]||p.originalTeam}'s pick${p.tradeNote ? ' — '+p.tradeNote : ''}</span>` : ''}
+        <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleDeleteDraftPick('${p.id}')">Remove</button>
+      </div>
+    </div>`;
+}
+function handleAddDraftPick(e){
+  e.preventDefault();
+  const btn = document.getElementById('draftSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  const entry = {
+    id: 'd-'+Date.now(),
+    round: parseInt(document.getElementById('d-round').value,10),
+    pickInRound: parseInt(document.getElementById('d-pick').value,10),
+    player: document.getElementById('d-player').value.trim(),
+    position: document.getElementById('d-position').value.trim(),
+    college: document.getElementById('d-college').value.trim(),
+    draftedBy: document.getElementById('d-drafted-by').value,
+    originalTeam: document.getElementById('d-original-team').value,
+    tradeNote: document.getElementById('d-trade-note').value.trim()
+  };
+  saveNewDraftPick(entry);
+  showToast('Pick added');
+  render();
+  return false;
+}
+function handleDeleteDraftPick(id){
+  deleteDraftPick(id);
+  showToast('Pick removed');
   render();
 }
 
@@ -1841,6 +1974,7 @@ function render(){
   else if(currentView==='scores') app.innerHTML = renderScores();
   else if(currentView==='moves') app.innerHTML = renderMoves();
   else if(currentView==='trades'){ app.innerHTML = renderTrades(); initTradeForm(); }
+  else if(currentView==='draft') app.innerHTML = renderDraft();
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
@@ -1884,6 +2018,7 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   loadSeasons();
   loadStatLeaders();
   loadStandings();
+  loadDraft();
   render();
 })();
 </script>
