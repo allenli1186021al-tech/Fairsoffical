@@ -332,6 +332,7 @@
       <button data-v="moves" class="display">Free Agency</button>
       <button data-v="trades" class="display">Trades</button>
       <button data-v="draft" class="display">Draft</button>
+      <button data-v="simulator" class="display">Simulator</button>
       <button data-v="leaders" class="display">Stat Leaders</button>
       <button data-v="media" class="display">Photos</button>
       <button data-v="standings" class="display">Standings</button>
@@ -517,6 +518,59 @@ function deleteTrade(id){
   const stored = (localDB.get('trades') || []).filter(t=>t.id!==id);
   localDB.set('trades', stored);
   trades = stored;
+}
+
+/* ---------------- Roster seed data ---------------- */
+// Best-effort roster/rating starting point — not guaranteed to reflect the current
+// state of any team, since rosters change constantly via trades/free agency/injuries.
+// Fully editable per-team via each team's Roster section.
+const ROSTER_SEED = {
+  ATL: [['Trae Young','PG',88,'Playmaker',26],['Jalen Johnson','SF',84,'Two-Way Wing',23],['Dyson Daniels','SG',78,'3&D',22],['Onyeka Okongwu','C',80,'Rim Protector',24],['Zaccharie Risacher','SF',74,'3&D',20],['Nickeil Alexander-Walker','SG',76,'Combo Guard',26],['Clint Capela','C',75,'Rim Protector',31]],
+  BOS: [['Jayson Tatum','SF',93,'Scorer',27],['Jaylen Brown','SG',89,'Scorer',28],['Derrick White','PG',85,'3&D',30],['Payton Pritchard','PG',80,'3&D',27],['Sam Hauser','SF',74,'3&D',27],['Al Horford','C',77,'Stretch Big',39],['Neemias Queta','C',76,'Rim Protector',26]],
+  BKN: [['Nic Claxton','C',78,'Rim Protector',26],['Cam Thomas','SG',82,'Scorer',23],['Michael Porter Jr','SF',80,'Scorer',27],['Noah Clowney','PF',72,'Stretch Big',21],['Egor Demin','PG',70,'Playmaker',19],['Terance Mann','SG',73,'3&D',28],["Day'Ron Sharpe",'C',71,'Rim Protector',23]],
+  CHA: [['LaMelo Ball','PG',89,'Playmaker',24],['Miles Bridges','PF',82,'Scorer',27],['Brandon Miller','SF',83,'Two-Way Wing',22],['Kon Knueppel','SG',76,'3&D',20],['Mark Williams','C',78,'Rim Protector',23],['Josh Green','SG',73,'3&D',24],['Tidjane Salaün','PF',70,'Two-Way Wing',20]],
+  CHI: [['Josh Giddey','PG',84,'Playmaker',22],['Coby White','SG',82,'Scorer',25],['Nikola Vucevic','C',81,'Stretch Big',35],['Matas Buzelis','SF',76,'Two-Way Wing',20],['Ayo Dosunmu','SG',75,'3&D',25],['Kevin Huerter','SF',74,'3&D',27],['Zach Collins','PF',72,'Stretch Big',28]],
+  CLE: [['Donovan Mitchell','SG',90,'Scorer',29],['Darius Garland','PG',85,'Playmaker',25],['Evan Mobley','PF',88,'Rim Protector',24],['Jarrett Allen','C',80,'Rim Protector',27],['Max Strus','SF',76,'3&D',29],['De\'Andre Hunter','SF',77,'3&D',28],['Ty Jerome','PG',75,'Combo Guard',28]],
+  DAL: [['Anthony Davis','PF',90,'Rim Protector',32],['Kyrie Irving','PG',87,'Scorer',33],['Klay Thompson','SG',78,'3&D',35],['Daniel Gafford','C',78,'Rim Protector',27],['P.J. Washington','PF',78,'Two-Way Wing',26],['Dereck Lively II','C',75,'Rim Protector',22],['Naji Marshall','SF',73,'3&D',27]],
+  DEN: [['Nikola Jokic','C',99,'Playmaker',31],['Jamal Murray','PG',87,'Scorer',28],['Aaron Gordon','PF',83,'Two-Way Wing',30],['Christian Braun','SG',78,'3&D',24],['Russell Westbrook','PG',76,'Playmaker',37],['Peyton Watson','SF',75,'3&D',23],['Zeke Nnaji','PF',70,'Stretch Big',24]],
+  DET: [['Cade Cunningham','PG',91,'Playmaker',24],['Jaden Ivey','SG',80,'Scorer',23],['Ausar Thompson','SF',79,'Two-Way Wing',22],['Tobias Harris','PF',78,'Scorer',33],['Jalen Duren','C',82,'Rim Protector',21],['Duncan Robinson','SF',76,'3&D',31],['Ron Holland','SF',73,'Two-Way Wing',20]],
+  GSW: [['Stephen Curry','PG',96,'Scorer',37],['Jimmy Butler','SF',87,'Two-Way Wing',36],['Draymond Green','PF',82,'Playmaker',35],['Jonathan Kuminga','PF',80,'Scorer',23],['Brandin Podziemski','SG',76,'Combo Guard',22],['Buddy Hield','SG',75,'3&D',32],['Quinten Post','C',70,'Stretch Big',25]],
+  HOU: [['Kevin Durant','SF',92,'Scorer',37],['Alperen Sengun','C',87,'Playmaker',23],['Jalen Green','SG',82,'Scorer',23],['Fred VanVleet','PG',80,'3&D',31],['Amen Thompson','SF',81,'Two-Way Wing',22],['Steven Adams','C',74,'Rim Protector',32],['Reed Sheppard','SG',73,'3&D',21]],
+  IND: [['Tyrese Haliburton','PG',89,'Playmaker',25],['Pascal Siakam','PF',85,'Scorer',31],['Andrew Nembhard','PG',79,'Combo Guard',25],['Bennedict Mathurin','SG',80,'Scorer',23],['Isaiah Jackson','C',75,'Rim Protector',23],['Aaron Nesmith','SF',76,'3&D',25],['Obi Toppin','PF',74,'Two-Way Wing',27]],
+  LAC: [['Kawhi Leonard','SF',89,'Two-Way Wing',34],['James Harden','PG',85,'Playmaker',36],['Ivica Zubac','C',82,'Rim Protector',28],['Norman Powell','SG',78,'Scorer',32],['Derrick Jones Jr','SF',76,'3&D',28],['Bogdan Bogdanovic','SG',75,'3&D',33],['John Collins','PF',76,'Stretch Big',28]],
+  LAL: [['Luka Doncic','PG',96,'Scorer',27],['Austin Reaves','SG',84,'Combo Guard',27],['Rui Hachimura','PF',78,'3&D',27],['Deandre Ayton','C',79,'Stretch Big',27],['Jarred Vanderbilt','PF',73,'Two-Way Wing',26],['Marcus Smart','PG',76,'3&D',31],['Jaxson Hayes','C',72,'Rim Protector',25]],
+  MEM: [['Ja Morant','PG',89,'Scorer',26],['Jaren Jackson Jr','PF',85,'Rim Protector',26],['Zach Edey','C',76,'Rim Protector',23],['Santi Aldama','PF',75,'Stretch Big',25],['Cedric Coward','SF',72,'3&D',22],['Scotty Pippen Jr','PG',73,'Combo Guard',25]],
+  MIA: [['Giannis Antetokounmpo','PF',97,'Scorer',31],['Bam Adebayo','C',85,'Rim Protector',28],['Tyler Herro','SG',84,'Scorer',26],['Andrew Wiggins','SF',78,'Two-Way Wing',30],['Davion Mitchell','PG',74,'3&D',27],["Kel'el Ware",'C',75,'Rim Protector',22],['Pelle Larsson','SG',70,'3&D',23]],
+  MIL: [['Myles Turner','C',82,'Rim Protector',30],['Kyle Kuzma','SF',78,'Scorer',30],['AJ Green','SG',74,'3&D',26],['Ryan Rollins','PG',74,'Combo Guard',23],['Bobby Portis','PF',76,'Stretch Big',31],['Gary Trent Jr','SG',75,'3&D',27],['Cole Anthony','PG',73,'Playmaker',26]],
+  MIN: [['Anthony Edwards','SG',93,'Scorer',24],['Julius Randle','PF',83,'Scorer',31],['Rudy Gobert','C',85,'Rim Protector',33],['Jaden McDaniels','SF',80,'3&D',25],['Mike Conley','PG',76,'Playmaker',38],['Naz Reid','C',78,'Stretch Big',26],['Donte DiVincenzo','SG',75,'3&D',29]],
+  NOP: [['Zion Williamson','PF',85,'Scorer',25],['CJ McCollum','SG',80,'Scorer',34],['Trey Murphy III','SF',80,'3&D',25],['Herbert Jones','SF',77,'3&D',27],['Jordan Poole','PG',76,'Scorer',26],['Yves Missi','C',74,'Rim Protector',21],['Jose Alvarado','PG',72,'Combo Guard',27]],
+  NYK: [['Jalen Brunson','PG',90,'Scorer',29],['Karl-Anthony Towns','C',87,'Stretch Big',30],['Mikal Bridges','SF',83,'3&D',29],['OG Anunoby','PF',83,'3&D',28],['Miles McBride','SG',76,'3&D',25],['Josh Hart','SF',77,'Two-Way Wing',30],['Mitchell Robinson','C',75,'Rim Protector',27]],
+  OKC: [['Shai Gilgeous-Alexander','PG',97,'Scorer',27],['Jalen Williams','SF',87,'Two-Way Wing',24],['Chet Holmgren','C',86,'Rim Protector',24],['Luguentz Dort','SG',78,'3&D',26],['Isaiah Hartenstein','C',78,'Rim Protector',27],['Cason Wallace','PG',75,'3&D',22],['Aaron Wiggins','SF',74,'3&D',26]],
+  ORL: [['Paolo Banchero','PF',89,'Scorer',23],['Franz Wagner','SF',86,'Two-Way Wing',24],['Desmond Bane','SG',83,'Scorer',27],['Jalen Suggs','PG',78,'3&D',24],['Wendell Carter Jr','C',76,'Stretch Big',26],['Anthony Black','PG',73,'Combo Guard',22],['Goga Bitadze','C',72,'Rim Protector',26]],
+  PHI: [['Joel Embiid','C',88,'Scorer',32],['Tyrese Maxey','PG',89,'Scorer',25],['LeBron James','SF',90,'Scorer',41],['Paul George','SF',80,'Two-Way Wing',35],['Quentin Grimes','SG',77,'3&D',25],['Andre Drummond','C',74,'Rim Protector',32],['Kelly Oubre Jr','SF',75,'3&D',30]],
+  PHX: [['Devin Booker','SG',91,'Scorer',29],['Dillon Brooks','SF',78,'3&D',30],['Royce O\'Neale','SF',75,'3&D',32],['Grayson Allen','SG',77,'3&D',30],['Ryan Dunn','SF',73,'Two-Way Wing',21],['Mason Plumlee','C',71,'Rim Protector',35]],
+  POR: [['Deni Avdija','SF',83,'Two-Way Wing',24],['Scoot Henderson','PG',78,'Playmaker',23],['Shaedon Sharpe','SG',80,'Scorer',23],['Donovan Clingan','C',78,'Rim Protector',21],['Jerami Grant','PF',76,'Scorer',31],['Toumani Camara','PF',74,'3&D',25]],
+  SAC: [['Domantas Sabonis','C',86,'Playmaker',29],['Zach LaVine','SG',81,'Scorer',30],['DeMar DeRozan','SF',80,'Scorer',36],['Keegan Murray','PF',77,'3&D',25],['Malik Monk','PG',78,'Scorer',27],['Devin Carter','SG',72,'3&D',22]],
+  SAS: [['Victor Wembanyama','C',95,'Rim Protector',22],['De\'Aaron Fox','PG',87,'Scorer',28],['Stephon Castle','SG',80,'Two-Way Wing',21],['Devin Vassell','SF',78,'3&D',25],['Harrison Barnes','SF',74,'3&D',33],['Julian Champagnie','SF',73,'3&D',24],['Luke Kornet','C',71,'Rim Protector',30]],
+  TOR: [['Scottie Barnes','SF',87,'Two-Way Wing',24],['Brandon Ingram','SF',83,'Scorer',28],['RJ Barrett','SG',81,'Scorer',25],['Immanuel Quickley','PG',79,'Combo Guard',26],['Jakob Poeltl','C',78,'Rim Protector',30],['Gradey Dick','SG',74,'3&D',22],['Ochai Agbaji','SF',72,'3&D',25]],
+  UTA: [['Lauri Markkanen','PF',85,'Scorer',28],['Walker Kessler','C',78,'Rim Protector',24],['Keyonte George','PG',78,'Scorer',22],['Ace Bailey','SF',76,'Two-Way Wing',19],['Isaiah Collier','PG',73,'Playmaker',21],['Kyle Filipowski','PF',72,'Stretch Big',22]],
+  WAS: [['Bilal Coulibaly','SF',78,'Two-Way Wing',21],['Alex Sarr','C',77,'Rim Protector',20],['Cam Whitmore','SF',75,'Scorer',21],['Bub Carrington','PG',74,'Combo Guard',20],['Corey Kispert','SF',73,'3&D',26],['Marvin Bagley III','PF',70,'Stretch Big',27],['Tristan Vukcevic','C',69,'Stretch Big',22]]
+};
+function seedAllRosters(){
+  let seededCount = 0;
+  Object.keys(ROSTER_SEED).forEach(team=>{
+    const existing = rosters[team] || [];
+    if(existing.length > 0) return; // never overwrite a team you've already edited
+    const players = ROSTER_SEED[team].map((row,i)=>({
+      id:'seed-'+team+'-'+i, name:row[0], position:row[1], overall:row[2], archetype:row[3], age:row[4], number:''
+    }));
+    const all = localDB.get('rosters') || {};
+    all[team] = players;
+    localDB.set('rosters', all);
+    seededCount++;
+  });
+  loadRosters();
+  return seededCount;
 }
 
 /* ---------------- Stat leader categories ---------------- */
@@ -1171,6 +1225,147 @@ function handleDeleteMove(id){
   render();
 }
 
+/* ---------------- Simulator: chemistry, matchups, game engine ---------------- */
+function computeTeamChemistry(team){
+  const roster = (rosters[team]||[]).filter(p=>p.archetype);
+  if(roster.length===0) return 75;
+  const counts = {};
+  roster.forEach(p=>{ counts[p.archetype]=(counts[p.archetype]||0)+1; });
+  const distinct = Object.keys(counts).length;
+  let chem = 72 + distinct*3;
+  const maxCount = Math.max(...Object.values(counts));
+  if(maxCount>2) chem -= (maxCount-2)*3;
+  return Math.max(55, Math.min(99, Math.round(chem)));
+}
+function teamPower(team){
+  const roster = (rosters[team]||[]).filter(p=>p.overall);
+  const chemistry = computeTeamChemistry(team);
+  if(roster.length===0) return { avgOverall:70, chemistry, offenseTilt:0, defenseTilt:0, players:[] };
+  const sorted = [...roster].sort((a,b)=>b.overall-a.overall).slice(0,9);
+  const weights = [1,0.95,0.9,0.85,0.75,0.6,0.5,0.4,0.3];
+  let wSum=0, wTotal=0;
+  sorted.forEach((p,i)=>{ const w=weights[i]||0.2; wSum+=p.overall*w; wTotal+=w; });
+  const avgOverall = wTotal ? wSum/wTotal : 70;
+  let offenseTilt=0, defenseTilt=0;
+  sorted.forEach(p=>{
+    if(!p.archetype) return;
+    if(['Scorer','Playmaker','Stretch Big','Combo Guard'].includes(p.archetype)) offenseTilt+=p.overall;
+    if(['3&D','Rim Protector','Two-Way Wing'].includes(p.archetype)) defenseTilt+=p.overall;
+  });
+  return { avgOverall, chemistry, offenseTilt, defenseTilt, players: sorted };
+}
+function simulateGame(teamA, teamB){
+  const A = teamPower(teamA), B = teamPower(teamB);
+  const edgeA = (A.offenseTilt - B.defenseTilt) / 100;
+  const edgeB = (B.offenseTilt - A.defenseTilt) / 100;
+  function genScore(power, edge){
+    let base = 96 + (power.avgOverall - 78) * 0.9 + (power.chemistry-75)*0.15 + edge*1.2;
+    let rand = 0;
+    for(let i=0;i<4;i++) rand += (Math.random()-0.5)*8;
+    return Math.max(78, Math.round(base+rand));
+  }
+  const scoreA = genScore(A, edgeA);
+  const scoreB = genScore(B, edgeB);
+  function genBoxScore(power, teamScore){
+    if(power.players.length===0) return [];
+    const overallSum = power.players.reduce((s,p)=>s+p.overall,0);
+    return power.players.map(p=>{
+      const share = p.overall/overallSum;
+      const pts = Math.max(0, Math.round(teamScore*share*(0.85+Math.random()*0.3)));
+      const reb = Math.max(0, Math.round((['Rim Protector','Stretch Big'].includes(p.archetype)?9:4)*(0.7+Math.random()*0.6)));
+      const ast = Math.max(0, Math.round((['Playmaker','Combo Guard'].includes(p.archetype)?7:2)*(0.7+Math.random()*0.6)));
+      const stl = Math.round(Math.random()*2);
+      const blk = Math.round((p.archetype==='Rim Protector'?1.5:0.3)*Math.random()*2);
+      const tov = Math.round(Math.random()*3);
+      return { name:p.name, pts, reb, ast, stl, blk, tov };
+    });
+  }
+  return {
+    scoreA, scoreB,
+    boxA: genBoxScore(A, scoreA), boxB: genBoxScore(B, scoreB),
+    chemA: A.chemistry, chemB: B.chemistry
+  };
+}
+let simResult = null;
+let simTeamA = null;
+let simTeamB = null;
+function renderSimulator(){
+  const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
+  const anyRosters = Object.keys(rosters).some(t=>(rosters[t]||[]).length>0);
+  return `
+    <div style="padding-top:40px;">
+      <p class="eyebrow">Simulator</p>
+      <h2 class="section-title" style="margin-bottom:8px;">Game Simulator</h2>
+      <p class="form-note" style="margin-bottom:22px;">Simulates a full game using each team's roster ratings, chemistry, and positional matchups — not just raw stats.</p>
+
+      ${!anyRosters ? `
+        <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; margin-bottom:24px;">
+          <span class="form-note" style="color:var(--paper); margin:0;">No rosters set up yet. Populate every team with a starting roster and ratings (won't touch any team you've already edited yourself).</span>
+          <button class="submit-btn" onclick="handleSeedRosters()">Populate All 30 Teams</button>
+        </div>
+      ` : `<button class="ghost-btn" style="margin-bottom:24px;" onclick="handleSeedRosters()">Populate Any Empty Teams</button>`}
+
+      <div class="row2">
+        <div class="field">
+          <label>Away Team</label>
+          <select id="sim-away">${teamOptions}</select>
+        </div>
+        <div class="field">
+          <label>Home Team</label>
+          <select id="sim-home">${teamOptions}</select>
+        </div>
+      </div>
+      <button class="submit-btn" onclick="handleSimulateGame()">Simulate Game</button>
+
+      ${simResult ? renderSimResult() : ''}
+    </div>
+  `;
+}
+function renderSimResult(){
+  const away = simTeamA, home = simTeamB;
+  const r = simResult;
+  return `
+    <div class="divider-court"></div>
+    <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+        <div class="score-line">
+          <span class="vs-team">${teamBadgeHtml(away,44)} ${away} <span class="score-num">${r.scoreA}</span></span>
+          <span style="color:var(--court-line-dim);">&ndash;</span>
+          <span class="vs-team"><span class="score-num">${r.scoreB}</span> ${home}${teamBadgeHtml(home,44)}</span>
+        </div>
+        <span class="score-status">FINAL (SIMULATED)</span>
+      </div>
+      <div class="form-note">Chemistry — ${away}: ${r.chemA} · ${home}: ${r.chemB}</div>
+      ${boxScoreTableHtml({away:r.boxA, home:r.boxB}, away, home)}
+      <button class="submit-btn" style="align-self:flex-start;" onclick="handleSaveSimToScores()">Save as Final Score</button>
+    </div>
+  `;
+}
+function handleSeedRosters(){
+  const count = seedAllRosters();
+  showToast(count>0 ? `Populated ${count} teams` : 'All teams already have rosters');
+  render();
+}
+function handleSimulateGame(){
+  const away = document.getElementById('sim-away').value;
+  const home = document.getElementById('sim-home').value;
+  if(away===home){ showToast('Pick two different teams'); return; }
+  simTeamA = away; simTeamB = home;
+  simResult = simulateGame(away, home);
+  render();
+}
+function handleSaveSimToScores(){
+  const entry = {
+    id: 's-sim-'+Date.now(),
+    away: simTeamA, awayScore: simResult.scoreA,
+    home: simTeamB, homeScore: simResult.scoreB,
+    status: 'FINAL', date: new Date().toISOString().slice(0,10),
+    boxScore: { away: simResult.boxA, home: simResult.boxB }
+  };
+  saveNewScore(entry);
+  showToast('Saved to Scores');
+}
+
 /* ---------------- Render: Draft ---------------- */
 function renderDraft(){
   const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
@@ -1795,7 +1990,7 @@ function renderTeamPage(team){
               ${playerPhotoHtml(p.name,44)}
               <div>
                 <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
-                <div class="form-note" style="margin:0;">${p.position||''}${p.number?' · #'+p.number:''}</div>
+                <div class="form-note" style="margin:0;">${p.position||''}${p.number?' · #'+p.number:''}${p.overall?' · '+p.overall+' OVR':''}${p.archetype?' · '+p.archetype:''}</div>
               </div>
             </div>
             <button class="ghost-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveRosterPlayer('${team}','${p.id}')">Remove</button>
@@ -1812,9 +2007,34 @@ function renderTeamPage(team){
             <input type="text" id="roster-position" maxlength="20" placeholder="e.g. PG">
           </div>
         </div>
-        <div class="field" style="max-width:160px;">
-          <label>Jersey #</label>
-          <input type="number" id="roster-number" min="0" max="99">
+        <div class="row2">
+          <div class="field">
+            <label>Jersey #</label>
+            <input type="number" id="roster-number" min="0" max="99">
+          </div>
+          <div class="field">
+            <label>Overall Rating (for Simulator)</label>
+            <input type="number" id="roster-overall" min="40" max="99" placeholder="e.g. 85">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Archetype (for Chemistry)</label>
+            <select id="roster-archetype">
+              <option value="">— None —</option>
+              <option>Scorer</option>
+              <option>Playmaker</option>
+              <option>3&D</option>
+              <option>Two-Way Wing</option>
+              <option>Rim Protector</option>
+              <option>Stretch Big</option>
+              <option>Combo Guard</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Age</label>
+            <input type="number" id="roster-age" min="18" max="45" placeholder="e.g. 24">
+          </div>
         </div>
         <button type="submit" class="submit-btn">Add to Roster</button>
       </form>
@@ -1837,7 +2057,10 @@ function handleAddRosterPlayer(e, team){
   const name = document.getElementById('roster-name').value.trim();
   const position = document.getElementById('roster-position').value.trim();
   const number = document.getElementById('roster-number').value;
-  addRosterPlayer(team, { id:'r-'+Date.now(), name, position, number });
+  const overall = parseInt(document.getElementById('roster-overall').value,10) || null;
+  const archetype = document.getElementById('roster-archetype').value;
+  const age = parseInt(document.getElementById('roster-age').value,10) || null;
+  addRosterPlayer(team, { id:'r-'+Date.now(), name, position, number, overall, archetype, age });
   showToast('Player added to roster');
   render();
   return false;
@@ -1992,6 +2215,7 @@ function render(){
   else if(currentView==='moves') app.innerHTML = renderMoves();
   else if(currentView==='trades'){ app.innerHTML = renderTrades(); initTradeForm(); }
   else if(currentView==='draft') app.innerHTML = renderDraft();
+  else if(currentView==='simulator') app.innerHTML = renderSimulator();
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
