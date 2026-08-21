@@ -404,6 +404,13 @@ let playerPhotos = {}; // { normalizedName: {name, photo:dataUrl} }
 let rosters = {}; // { TEAM: [{id, name, number, position}] } — used by Find Your Team
 let simRosters = {}; // { TEAM: [{id, name, overall, archetype, age}] } — Simulator-only, separate from rosters
 let simMode = null; // 'ai' | 'friends'
+let leagues = {}; // { leagueId: {id, code, name, myTeam, createdAt} }
+let currentLeagueId = null;
+let leagueTab = 'season'; // 'season' | 'gameplan' | 'trades' | 'roster'
+let pendingLeagueFlow = null; // 'create' | 'join' — tracks which flow the team-choose screen is for
+let pendingJoinCode = null;
+let tradeSelection = { mine: new Set(), theirs: new Set() };
+let tradeTargetTeam = null;
 let simMyTeam = null;
 let simOpponentTeam = null;
 let currentTeam = null;
@@ -581,23 +588,6 @@ const ROSTER_SEED = {
   UTA: [['Lauri Markkanen','PF',85,'Scorer',28],['Walker Kessler','C',78,'Rim Protector',24],['Keyonte George','PG',78,'Scorer',22],['Ace Bailey','SF',76,'Two-Way Wing',19],['Isaiah Collier','PG',73,'Playmaker',21],['Kyle Filipowski','PF',72,'Stretch Big',22]],
   WAS: [['Bilal Coulibaly','SF',78,'Two-Way Wing',21],['Alex Sarr','C',77,'Rim Protector',20],['Cam Whitmore','SF',75,'Scorer',21],['Bub Carrington','PG',74,'Combo Guard',20],['Corey Kispert','SF',73,'3&D',26],['Marvin Bagley III','PF',70,'Stretch Big',27],['Tristan Vukcevic','C',69,'Stretch Big',22]]
 };
-function seedAllSimRosters(){
-  let seededCount = 0;
-  Object.keys(ROSTER_SEED).forEach(team=>{
-    const existing = simRosters[team] || [];
-    if(existing.length > 0) return; // never overwrite a team you've already edited
-    const players = ROSTER_SEED[team].map((row,i)=>({
-      id:'seed-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
-    }));
-    const all = localDB.get('sim-rosters') || {};
-    all[team] = players;
-    localDB.set('sim-rosters', all);
-    seededCount++;
-  });
-  loadSimRosters();
-  return seededCount;
-}
-
 /* ---------------- Stat leader categories ---------------- */
 const STAT_CATEGORIES = [
   {key:'ppg', label:'Points', mode:'per_game', unit:'PPG'},
@@ -738,21 +728,97 @@ function removeRosterPlayer(team, id){
 }
 
 /* ---------------- Storage: Simulator rosters (separate from Find Your Team) ---------------- */
-function loadSimRosters(){ simRosters = localDB.get('sim-rosters') || {}; }
+function simRostersKey(){ return 'sim-rosters:'+currentLeagueId; }
+function loadSimRosters(){ simRosters = currentLeagueId ? (localDB.get(simRostersKey()) || {}) : {}; }
 function addSimRosterPlayer(team, entry){
-  const all = localDB.get('sim-rosters') || {};
+  const all = localDB.get(simRostersKey()) || {};
   const list = all[team] || [];
   list.push(entry);
   all[team] = list;
-  localDB.set('sim-rosters', all);
+  localDB.set(simRostersKey(), all);
   simRosters = all;
 }
 function removeSimRosterPlayer(team, id){
-  const all = localDB.get('sim-rosters') || {};
+  const all = localDB.get(simRostersKey()) || {};
   all[team] = (all[team]||[]).filter(p=>p.id!==id);
-  localDB.set('sim-rosters', all);
+  localDB.set(simRostersKey(), all);
   simRosters = all;
 }
+
+/* ---------------- Leagues: create/join/list, schedule, gameplan, trades ---------------- */
+function loadLeagues(){ leagues = localDB.get('leagues') || {}; }
+function generateLeagueCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for(let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+function seedLeagueRosters(leagueId){
+  const rostersForLeague = {};
+  Object.keys(ROSTER_SEED).forEach(team=>{
+    rostersForLeague[team] = ROSTER_SEED[team].map((row,i)=>({
+      id:'seed-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
+    }));
+  });
+  localDB.set('sim-rosters:'+leagueId, rostersForLeague);
+}
+function generateSeasonSchedule(myTeam){
+  const others = Object.keys(TEAM_COLORS).filter(t=>t!==myTeam);
+  const schedule = [];
+  const startDate = new Date(); startDate.setMonth(9, 21); // ~Oct 21 season start
+  let gameNum = 1;
+  let oi = 0;
+  while(gameNum <= 82){
+    const opponent = others[oi % others.length];
+    const gameDate = new Date(startDate);
+    gameDate.setDate(startDate.getDate() + Math.round(gameNum * 2.2));
+    schedule.push({
+      gameNum, opponent, home: gameNum % 2 === 0,
+      date: gameDate.toISOString().slice(0,10),
+      played: false, myScore:null, oppScore:null
+    });
+    gameNum++; oi++;
+  }
+  return schedule;
+}
+function createLeague(name, myTeam){
+  const id = 'lg-'+Date.now();
+  const league = {
+    id, code: generateLeagueCode(), name: name || (TEAM_NAMES[myTeam]+' League'),
+    myTeam, mode: simMode, createdAt: new Date().toISOString().slice(0,10)
+  };
+  const all = localDB.get('leagues') || {};
+  all[id] = league;
+  localDB.set('leagues', all);
+  seedLeagueRosters(id);
+  localDB.set('league-schedule:'+id, generateSeasonSchedule(myTeam));
+  localDB.set('league-gameplan:'+id, {});
+  leagues = all;
+  return league;
+}
+function findLeagueByCode(code){
+  return Object.values(leagues).find(l=>l.code.toUpperCase()===code.trim().toUpperCase());
+}
+function setLeagueTeam(leagueId, team){
+  const all = localDB.get('leagues') || {};
+  if(!all[leagueId]) return;
+  all[leagueId].myTeam = team;
+  localDB.set('leagues', all);
+  leagues = all;
+  if(!localDB.get('sim-rosters:'+leagueId)) seedLeagueRosters(leagueId);
+  if(!localDB.get('league-schedule:'+leagueId)) localDB.set('league-schedule:'+leagueId, generateSeasonSchedule(team));
+}
+function deleteLeague(id){
+  const all = localDB.get('leagues') || {};
+  delete all[id];
+  localDB.set('leagues', all);
+  leagues = all;
+}
+function loadLeagueSchedule(leagueId){ return localDB.get('league-schedule:'+leagueId) || []; }
+function saveLeagueSchedule(leagueId, schedule){ localDB.set('league-schedule:'+leagueId, schedule); }
+function loadLeagueGameplan(leagueId){ return localDB.get('league-gameplan:'+leagueId) || {}; }
+function saveLeagueGameplan(leagueId, gameplan){ localDB.set('league-gameplan:'+leagueId, gameplan); }
+
 function resizeImageToDataUrl(file, size, mode, callback){
   const reader = new FileReader();
   reader.onload = function(e){
@@ -1332,24 +1398,44 @@ let simResult = null;
 let simTeamA = null;
 let simTeamB = null;
 
-/* ---------------- Simulator: landing menu ---------------- */
+/* ---------------- Simulator: landing menu (leagues list) ---------------- */
 function renderSimulator(){
+  const leagueList = Object.values(leagues).sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
   return `
     <div style="padding-top:44px;">
       <p class="eyebrow" style="text-align:center;">Simulator</p>
-      <h2 class="section-title" style="text-align:center; margin-bottom:10px; font-size:34px;">Build Your Team</h2>
-      <p class="form-note" style="text-align:center; margin-bottom:36px; max-width:520px; margin-left:auto; margin-right:auto;">Pick a mode to get started. You'll choose a team, set your roster and ratings, then simulate games using chemistry and positional matchups.</p>
+      <h2 class="section-title" style="text-align:center; margin-bottom:10px; font-size:34px;">Your Leagues</h2>
+      <p class="form-note" style="text-align:center; margin-bottom:32px; max-width:560px; margin-left:auto; margin-right:auto;">
+        Each league is its own separate save — its own rosters, ratings, trades, and schedule. Create as many as you want.
+        Friends can join with a league's code, but since Fairs doesn't have a shared server yet, your moves won't sync live to their screen — that's a future upgrade, not today's version.
+      </p>
+
+      ${leagueList.length ? `
+        <div style="display:flex; flex-direction:column; gap:14px; max-width:560px; margin:0 auto 32px;">
+          ${leagueList.map(l=>`
+            <div class="score-entry" style="cursor:pointer;" onclick="openLeague('${l.id}')">
+              <div style="display:flex; align-items:center; gap:14px;">
+                ${teamBadgeHtml(l.myTeam,40)}
+                <div>
+                  <div style="font-family:'Anton',sans-serif; font-size:15px; color:var(--paper); text-transform:uppercase;">${l.name}</div>
+                  <div class="form-note" style="margin:0;">${TEAM_NAMES[l.myTeam]} · Code: ${l.code}</div>
+                </div>
+              </div>
+              <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="event.stopPropagation(); handleDeleteLeague('${l.id}')">Delete</button>
+            </div>`).join('')}
+        </div>
+      ` : ''}
 
       <div class="sim-mode-grid">
         <div class="sim-mode-card" onclick="startSimMode('ai')">
           <div class="sim-mode-icon" style="background:linear-gradient(160deg, var(--hardwood), var(--hardwood-deep));">🤖</div>
           <div class="sim-mode-label">VS <span style="color:var(--hardwood);">AI</span></div>
-          <p class="form-note">Pick your team and simulate against any opponent.</p>
+          <p class="form-note">Create a new league and play against AI-controlled teams.</p>
         </div>
-        <div class="sim-mode-card" onclick="startSimMode('friends')">
+        <div class="sim-mode-card" onclick="promptJoinLeague()">
           <div class="sim-mode-icon" style="background:linear-gradient(160deg, var(--buzzer), #8f2e26);">🎮</div>
-          <div class="sim-mode-label">VS <span style="color:var(--buzzer);">FRIENDS</span></div>
-          <p class="form-note">Pick your team, they pick theirs, then simulate head-to-head.</p>
+          <div class="sim-mode-label">JOIN BY <span style="color:var(--buzzer);">CODE</span></div>
+          <p class="form-note">Enter a league code to join and pick your team.</p>
         </div>
       </div>
     </div>
@@ -1357,9 +1443,38 @@ function renderSimulator(){
 }
 function startSimMode(mode){
   simMode = mode;
+  pendingLeagueFlow = 'create';
   currentView = 'simulator-choose';
   render();
 }
+function promptJoinLeague(){
+  const code = prompt('Enter the league code:');
+  if(!code) return;
+  const league = findLeagueByCode(code);
+  if(!league){ showToast('No league found with that code'); return; }
+  pendingJoinCode = code;
+  pendingLeagueFlow = 'join';
+  simMode = 'friends';
+  currentView = 'simulator-choose';
+  render();
+}
+function openLeague(leagueId){
+  currentLeagueId = leagueId;
+  loadSimRosters();
+  leagueTab = 'season';
+  currentView = 'league-hub';
+  render();
+}
+function handleDeleteLeague(id){
+  deleteLeague(id);
+  localDB.set('sim-rosters:'+id, null);
+  localDB.set('league-schedule:'+id, null);
+  localDB.set('league-gameplan:'+id, null);
+  showToast('League deleted');
+  render();
+}
+
+/* ---------------- Simulator: choose team (feeds into create or join) ---------------- */
 function renderSimulatorChoose(){
   const allWest = [...WEST_TEAMS].sort((a,b)=>TEAM_NAMES[a].localeCompare(TEAM_NAMES[b]));
   const allEast = [...EAST_TEAMS].sort((a,b)=>TEAM_NAMES[a].localeCompare(TEAM_NAMES[b]));
@@ -1374,7 +1489,7 @@ function renderSimulatorChoose(){
   return `
     <div style="padding-top:40px;">
       <a class="back-link" onclick="currentView='simulator'; render();">&larr; Back</a>
-      <p class="eyebrow" style="margin-top:14px;">${simMode==='ai' ? 'VS AI' : 'VS Friends'}</p>
+      <p class="eyebrow" style="margin-top:14px;">${pendingLeagueFlow==='join' ? 'Joining League '+pendingJoinCode : 'New League'}</p>
       <h2 class="section-title" style="margin-bottom:28px;">Choose Your Team</h2>
       <h3 class="section-title" style="font-size:18px; margin-bottom:14px;">Eastern Conference</h3>
       ${teamGridHtml(allEast)}
@@ -1385,156 +1500,340 @@ function renderSimulatorChoose(){
   `;
 }
 function chooseSimTeam(team){
-  simMyTeam = team;
-  currentView = 'simulator-roster';
-  render();
+  if(pendingLeagueFlow === 'join'){
+    const league = findLeagueByCode(pendingJoinCode);
+    if(!league){ showToast('League no longer exists'); currentView='simulator'; render(); return; }
+    setLeagueTeam(league.id, team);
+    openLeague(league.id);
+  } else {
+    const league = createLeague(null, team);
+    openLeague(league.id);
+  }
 }
-function renderSimulatorRosterPage(){
-  const team = simMyTeam;
-  if(!team) return `<p style="padding-top:60px;">No team selected. <a class="back-link" onclick="currentView='simulator'; render();">&larr; Back to Simulator</a></p>`;
-  const roster = simRosters[team] || [];
+
+/* ---------------- League Hub ---------------- */
+function renderLeagueHub(){
+  const league = leagues[currentLeagueId];
+  if(!league) return `<p style="padding-top:60px;">League not found. <a class="back-link" onclick="currentView='simulator'; render();">&larr; Back to Simulator</a></p>`;
+  const team = league.myTeam;
   const power = teamPower(team);
-  const teamOptions = Object.keys(TEAM_COLORS).sort().filter(t=>t!==team).map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
+  const tabs = [['season','Season'],['gameplan','Gameplan'],['trades','Trades'],['roster','Roster']];
   return `
     <div style="padding-top:36px;">
-      <a class="back-link" onclick="currentView='simulator-choose'; render();">&larr; Choose a Different Team</a>
-      <div style="display:flex; align-items:center; gap:20px; margin:14px 0 8px;">
+      <a class="back-link" onclick="currentView='simulator'; render();">&larr; All Leagues</a>
+      <div style="display:flex; align-items:center; gap:20px; margin:14px 0 20px; flex-wrap:wrap;">
         ${teamBadgeHtml(team,72)}
         <div>
-          <h1 class="hero-headline" style="margin:0; font-size:clamp(26px,4vw,40px);">${TEAM_NAMES[team]}</h1>
-          <p class="hero-meta" style="margin-top:6px;">${simMode==='ai' ? 'Playing vs AI' : 'Playing vs Friend'} · Chemistry: ${power.chemistry} · Rating: ${Math.round(power.avgOverall)}</p>
+          <h1 class="hero-headline" style="margin:0; font-size:clamp(24px,4vw,36px);">${league.name}</h1>
+          <p class="hero-meta" style="margin-top:6px;">${TEAM_NAMES[team]} · Code: ${league.code} · Chemistry: ${power.chemistry} · Rating: ${Math.round(power.avgOverall)}</p>
         </div>
       </div>
+      <div class="conf-toggle" style="flex-wrap:wrap;">
+        ${tabs.map(([key,label])=>`<button class="${leagueTab===key?'active':''}" onclick="setLeagueTab('${key}')">${label}</button>`).join('')}
+      </div>
+      <div style="padding-top:26px;">
+        ${leagueTab==='season' ? renderLeagueSeason() : ''}
+        ${leagueTab==='gameplan' ? renderLeagueGameplan() : ''}
+        ${leagueTab==='trades' ? renderLeagueTrades() : ''}
+        ${leagueTab==='roster' ? renderLeagueRosterTab() : ''}
+      </div>
+    </div>
+  `;
+}
+function setLeagueTab(tab){ leagueTab = tab; simResult = null; render(); }
 
-      <div class="divider-court"></div>
+/* ---- Season tab ---- */
+function renderLeagueSeason(){
+  const league = leagues[currentLeagueId];
+  const schedule = loadLeagueSchedule(currentLeagueId);
+  const byMonth = {};
+  schedule.forEach(g=>{
+    const month = new Date(g.date+'T00:00:00').toLocaleDateString('en-US',{month:'long', year:'numeric'});
+    if(!byMonth[month]) byMonth[month] = [];
+    byMonth[month].push(g);
+  });
+  return `
+    <p class="form-note" style="margin-bottom:20px;">Full 82-game schedule for ${TEAM_NAMES[league.myTeam]}. Simulation logic for auto-advancing the season comes later — for now you can simulate any individual game.</p>
+    ${Object.keys(byMonth).map(month=>`
+      <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:20px 0 12px;">${month}</h4>
+      ${byMonth[month].map(g=>`
+        <div class="score-entry" style="padding:12px 20px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span class="form-note" style="width:34px;">#${g.gameNum}</span>
+            <span class="score-line" style="font-size:14px;">
+              ${g.home ? teamBadgeHtml(g.opponent,26)+' '+g.opponent+' @ '+teamBadgeHtml(league.myTeam,26) : teamBadgeHtml(league.myTeam,26)+' @ '+teamBadgeHtml(g.opponent,26)}
+            </span>
+            <span class="form-note">${fmtDate(g.date)}</span>
+          </div>
+          ${g.played
+            ? `<span class="score-status">${g.myScore}-${g.oppScore} FINAL</span>`
+            : `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleSimulateScheduledGame(${g.gameNum})">Simulate</button>`}
+        </div>`).join('')}
+    `).join('')}
+  `;
+}
+function handleSimulateScheduledGame(gameNum){
+  const league = leagues[currentLeagueId];
+  const schedule = loadLeagueSchedule(currentLeagueId);
+  const g = schedule.find(x=>x.gameNum===gameNum);
+  if(!g) return;
+  const result = g.home ? simulateGame(g.opponent, league.myTeam) : simulateGame(league.myTeam, g.opponent);
+  g.played = true;
+  g.myScore = g.home ? result.scoreB : result.scoreA;
+  g.oppScore = g.home ? result.scoreA : result.scoreB;
+  saveLeagueSchedule(currentLeagueId, schedule);
+  const entry = {
+    id: 's-sim-'+Date.now(),
+    away: g.home ? g.opponent : league.myTeam, awayScore: result.scoreA,
+    home: g.home ? league.myTeam : g.opponent, homeScore: result.scoreB,
+    status: 'FINAL', date: g.date,
+    boxScore: { away: result.boxA, home: result.boxB }
+  };
+  saveNewScore(entry);
+  showToast(`Game ${gameNum} simulated — saved to Scores`);
+  render();
+}
 
-      ${roster.length===0 ? `
-        <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; margin-bottom:22px;">
-          <span class="form-note" style="color:var(--paper); margin:0;">This team has no simulator roster yet.</span>
-          <button class="submit-btn" onclick="handleSeedSimRosters()">Populate All 30 Teams (Simulator Only)</button>
+/* ---- Gameplan tab ---- */
+function renderLeagueGameplan(){
+  const league = leagues[currentLeagueId];
+  const roster = simRosters[league.myTeam] || [];
+  const gameplan = loadLeagueGameplan(currentLeagueId);
+  const totalMinutes = roster.reduce((sum,p)=> sum + (parseInt(gameplan[p.id],10)||0), 0);
+  return `
+    <p class="form-note" style="margin-bottom:8px;">Assign minutes per player (0–48). A full team's minutes should add up to around 240 across five positions worth of playing time.</p>
+    <p class="form-note" style="margin-bottom:20px; color:var(--paper);">Total assigned: ${totalMinutes} min</p>
+    ${roster.length ? `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
+      ${roster.map(p=>`
+        <div class="score-entry" style="padding:12px 20px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            ${playerPhotoHtml(p.name,32)}
+            <span style="font-family:'Anton',sans-serif; font-size:13px; color:var(--paper); text-transform:uppercase;">${p.name}</span>
+            <span class="form-note">${p.position||''}${p.overall?' · '+p.overall+' OVR':''}</span>
+          </div>
+          <input type="number" min="0" max="48" placeholder="MIN" value="${gameplan[p.id]??''}" data-gp-id="${p.id}" style="width:64px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+        </div>`).join('')}
+    </div>` : `<div class="empty-state">Add players in the Roster tab first.</div>`}
+    ${roster.length ? `<button class="submit-btn" onclick="handleSaveGameplan()">Save Gameplan</button>` : ''}
+  `;
+}
+function handleSaveGameplan(){
+  const gameplan = {};
+  document.querySelectorAll('[data-gp-id]').forEach(el=>{
+    if(el.value) gameplan[el.dataset.gpId] = parseInt(el.value,10);
+  });
+  saveLeagueGameplan(currentLeagueId, gameplan);
+  showToast('Gameplan saved');
+  render();
+}
+
+/* ---- Trades tab ---- */
+function renderLeagueTrades(){
+  const league = leagues[currentLeagueId];
+  const myTeam = league.myTeam;
+  const myRoster = simRosters[myTeam] || [];
+  const teamOptions = Object.keys(TEAM_COLORS).sort().filter(t=>t!==myTeam).map(t=>`<option value="${t}" ${tradeTargetTeam===t?'selected':''}>${t} — ${TEAM_NAMES[t]}</option>`).join('');
+  const target = tradeTargetTeam || Object.keys(TEAM_COLORS).find(t=>t!==myTeam);
+  const theirRoster = simRosters[target] || [];
+
+  const finderSuggestion = buildTradeFinderSuggestion(myRoster, theirRoster);
+
+  return `
+    <div class="field" style="max-width:320px; margin-bottom:22px;">
+      <label>Trade With</label>
+      <select id="trade-target" onchange="setTradeTarget(this.value)">${teamOptions}</select>
+    </div>
+
+    <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:0 0 12px;">Trade Finder</h4>
+    ${finderSuggestion ? `
+      <div class="trade-card" style="margin-bottom:24px;">
+        <div class="trade-body">
+          <div class="trade-side">
+            <div class="trade-team-head">${teamBadgeHtml(myTeam,26)}<span>${TEAM_NAMES[myTeam]} Sends</span></div>
+            <ul class="trade-assets"><li>${finderSuggestion.mine.name} (${finderSuggestion.mine.overall} OVR)</li></ul>
+          </div>
+          <div class="trade-divider"></div>
+          <div class="trade-side">
+            <div class="trade-team-head">${teamBadgeHtml(target,26)}<span>${TEAM_NAMES[target]} Sends</span></div>
+            <ul class="trade-assets"><li>${finderSuggestion.theirs.name} (${finderSuggestion.theirs.overall} OVR)</li></ul>
+          </div>
         </div>
-      ` : ''}
-
-      <h3 class="section-title" style="font-size:20px; margin-bottom:8px;">Your Roster</h3>
-      <p class="form-note" style="margin-bottom:16px;">Names/positions are pulled from a real roster where available — set each player's Overall, Archetype, and Age yourself, then hit Save Ratings.</p>
-      ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
-        ${roster.map(p=>`
-          <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; min-width:220px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-              ${playerPhotoHtml(p.name,44)}
-              <div>
-                <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
-                <div class="form-note" style="margin:0;">${p.position||''}</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
-              <input type="number" min="40" max="99" placeholder="OVR" value="${p.overall??''}" data-rate-id="${p.id}" data-rate-field="overall" style="width:64px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
-              <select data-rate-id="${p.id}" data-rate-field="archetype" style="background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-size:11px;">
-                <option value="" ${!p.archetype?'selected':''}>— Archetype —</option>
-                ${['Scorer','Playmaker','3&D','Two-Way Wing','Rim Protector','Stretch Big','Combo Guard'].map(a=>`<option ${p.archetype===a?'selected':''}>${a}</option>`).join('')}
-              </select>
-              <input type="number" min="18" max="45" placeholder="Age" value="${p.age??''}" data-rate-id="${p.id}" data-rate-field="age" style="width:56px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
-            </div>
-            <button class="ghost-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveSimRosterPlayer('${p.id}')">Remove</button>
-          </div>`).join('')}
-      </div>` : `<div class="empty-state" style="margin-bottom:22px;">No players added yet.</div>`}
-      ${roster.length ? `<button class="submit-btn" style="margin-bottom:22px;" onclick="handleSaveRatings()">Save Ratings</button>` : ''}
-
-      <form onsubmit="return handleAddSimRosterPlayer(event)">
-        <div class="row2">
-          <div class="field">
-            <label>Player Name</label>
-            <input type="text" id="sim-roster-name" required maxlength="60" placeholder="e.g. Trae Young">
-          </div>
-          <div class="field">
-            <label>Position</label>
-            <input type="text" id="sim-roster-position" maxlength="20" placeholder="e.g. PG">
-          </div>
+        <div class="trade-remove">
+          <button class="submit-btn" style="padding:10px 20px; font-size:12px;" onclick="handleExecuteQuickTrade('${finderSuggestion.mine.id}','${finderSuggestion.theirs.id}')">Accept This Trade</button>
         </div>
-        <div class="row2">
-          <div class="field">
-            <label>Overall Rating</label>
-            <input type="number" id="sim-roster-overall" min="40" max="99" required placeholder="e.g. 85">
+      </div>
+    ` : `<div class="empty-state" style="margin-bottom:24px;">Not enough rated players on both sides to suggest a fair trade yet.</div>`}
+
+    <div class="divider-court"></div>
+
+    <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:0 0 14px;">Propose a Trade</h4>
+    <div class="row2">
+      <div>
+        <p class="form-note" style="color:var(--paper); margin-bottom:8px;">${TEAM_NAMES[myTeam]} sends:</p>
+        ${myRoster.map(p=>`
+          <label style="display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; color:var(--court-line); cursor:pointer;">
+            <input type="checkbox" ${tradeSelection.mine.has(p.id)?'checked':''} onchange="toggleTradeSelect('mine','${p.id}')">
+            ${p.name} ${p.overall?'('+p.overall+' OVR)':''}
+          </label>`).join('') || `<div class="empty-state" style="padding:10px 0;">No players yet.</div>`}
+      </div>
+      <div>
+        <p class="form-note" style="color:var(--paper); margin-bottom:8px;">${TEAM_NAMES[target]} sends:</p>
+        ${theirRoster.map(p=>`
+          <label style="display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; color:var(--court-line); cursor:pointer;">
+            <input type="checkbox" ${tradeSelection.theirs.has(p.id)?'checked':''} onchange="toggleTradeSelect('theirs','${p.id}')">
+            ${p.name} ${p.overall?'('+p.overall+' OVR)':''}
+          </label>`).join('') || `<div class="empty-state" style="padding:10px 0;">No players yet.</div>`}
+      </div>
+    </div>
+    <p class="form-note" style="margin:14px 0;">${tradeValueSummary(myRoster, theirRoster)}</p>
+    <button class="submit-btn" onclick="handleProposeTrade()">Propose Trade</button>
+  `;
+}
+function setTradeTarget(team){ tradeTargetTeam = team; tradeSelection = {mine:new Set(), theirs:new Set()}; render(); }
+function toggleTradeSelect(side, id){
+  const set = tradeSelection[side];
+  if(set.has(id)) set.delete(id); else set.add(id);
+  render();
+}
+function tradeValueSummary(myRoster, theirRoster){
+  const sum = (roster, ids) => roster.filter(p=>ids.has(p.id)).reduce((s,p)=>s+(p.overall||0),0);
+  const mineVal = sum(myRoster, tradeSelection.mine);
+  const theirsVal = sum(theirRoster, tradeSelection.theirs);
+  if(tradeSelection.mine.size===0 && tradeSelection.theirs.size===0) return 'Select players from each side to compare value.';
+  const diff = mineVal - theirsVal;
+  if(Math.abs(diff) <= 5) return `Trade value looks fair (${mineVal} vs ${theirsVal} combined OVR).`;
+  return diff > 0 ? `You're giving up more value (${mineVal} vs ${theirsVal}) — might get rejected.` : `You're getting more value (${theirsVal} vs ${mineVal}) — a good deal for you.`;
+}
+function buildTradeFinderSuggestion(myRoster, theirRoster){
+  const mine = myRoster.filter(p=>p.overall);
+  const theirs = theirRoster.filter(p=>p.overall);
+  if(mine.length===0 || theirs.length===0) return null;
+  let best = null, bestDiff = Infinity;
+  mine.forEach(m=>{
+    theirs.forEach(t=>{
+      const diff = Math.abs(m.overall - t.overall);
+      if(diff < bestDiff){ bestDiff = diff; best = {mine:m, theirs:t}; }
+    });
+  });
+  return best;
+}
+function handleExecuteQuickTrade(myPlayerId, theirPlayerId){
+  const league = leagues[currentLeagueId];
+  executeTrade(league.myTeam, tradeTargetTeam, [myPlayerId], [theirPlayerId]);
+  showToast('Trade completed');
+  render();
+}
+function handleProposeTrade(){
+  const league = leagues[currentLeagueId];
+  if(tradeSelection.mine.size===0 && tradeSelection.theirs.size===0){ showToast('Select at least one player'); return; }
+  executeTrade(league.myTeam, tradeTargetTeam, [...tradeSelection.mine], [...tradeSelection.theirs]);
+  tradeSelection = {mine:new Set(), theirs:new Set()};
+  showToast('Trade completed');
+  render();
+}
+function executeTrade(teamA, teamB, teamAPlayerIds, teamBPlayerIds){
+  const all = localDB.get(simRostersKey()) || {};
+  const listA = all[teamA] || [];
+  const listB = all[teamB] || [];
+  const movingFromA = listA.filter(p=>teamAPlayerIds.includes(p.id));
+  const movingFromB = listB.filter(p=>teamBPlayerIds.includes(p.id));
+  all[teamA] = listA.filter(p=>!teamAPlayerIds.includes(p.id)).concat(movingFromB);
+  all[teamB] = listB.filter(p=>!teamBPlayerIds.includes(p.id)).concat(movingFromA);
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+}
+
+/* ---- Roster tab (rating entry) ---- */
+function renderLeagueRosterTab(){
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const roster = simRosters[team] || [];
+  return `
+    <p class="form-note" style="margin-bottom:16px;">Names/positions are pulled from a real roster where available — set each player's Overall, Archetype, and Age yourself, then hit Save Ratings.</p>
+    ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
+      ${roster.map(p=>`
+        <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; min-width:220px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            ${playerPhotoHtml(p.name,44)}
+            <div>
+              <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
+              <div class="form-note" style="margin:0;">${p.position||''}</div>
+            </div>
           </div>
-          <div class="field">
-            <label>Age</label>
-            <input type="number" id="sim-roster-age" min="18" max="45" placeholder="e.g. 24">
+          <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
+            <input type="number" min="40" max="99" placeholder="OVR" value="${p.overall??''}" data-rate-id="${p.id}" data-rate-field="overall" style="width:64px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+            <select data-rate-id="${p.id}" data-rate-field="archetype" style="background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-size:11px;">
+              <option value="" ${!p.archetype?'selected':''}>— Archetype —</option>
+              ${['Scorer','Playmaker','3&D','Two-Way Wing','Rim Protector','Stretch Big','Combo Guard'].map(a=>`<option ${p.archetype===a?'selected':''}>${a}</option>`).join('')}
+            </select>
+            <input type="number" min="18" max="45" placeholder="Age" value="${p.age??''}" data-rate-id="${p.id}" data-rate-field="age" style="width:56px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
           </div>
+          <button class="ghost-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveSimRosterPlayer('${p.id}')">Remove</button>
+        </div>`).join('')}
+    </div>` : `<div class="empty-state" style="margin-bottom:22px;">No players added yet.</div>`}
+    ${roster.length ? `<button class="submit-btn" style="margin-bottom:22px;" onclick="handleSaveRatings()">Save Ratings</button>` : ''}
+
+    <form onsubmit="return handleAddSimRosterPlayer(event)">
+      <div class="row2">
+        <div class="field">
+          <label>Player Name</label>
+          <input type="text" id="sim-roster-name" required maxlength="60" placeholder="e.g. Trae Young">
         </div>
         <div class="field">
-          <label>Archetype (for Chemistry)</label>
-          <select id="sim-roster-archetype">
-            <option value="">— None —</option>
-            <option>Scorer</option>
-            <option>Playmaker</option>
-            <option>3&D</option>
-            <option>Two-Way Wing</option>
-            <option>Rim Protector</option>
-            <option>Stretch Big</option>
-            <option>Combo Guard</option>
-          </select>
+          <label>Position</label>
+          <input type="text" id="sim-roster-position" maxlength="20" placeholder="e.g. PG">
         </div>
-        <button type="submit" class="submit-btn">Add Player</button>
-      </form>
-
-      <div class="divider-court"></div>
-
-      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Simulate a Game</h3>
-      <div class="field" style="max-width:320px;">
-        <label>${simMode==='ai' ? 'Opponent (AI-controlled)' : "Friend's Team"}</label>
-        <select id="sim-opponent">${teamOptions}</select>
       </div>
-      <button class="submit-btn" onclick="handleSimulateGame()">Simulate Game</button>
-
-      ${simResult ? renderSimResult() : ''}
-    </div>
-  `;
-}
-function renderSimResult(){
-  const away = simTeamA, home = simTeamB;
-  const r = simResult;
-  return `
-    <div class="divider-court"></div>
-    <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:10px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
-        <div class="score-line">
-          <span class="vs-team">${teamBadgeHtml(away,44)} ${away} <span class="score-num">${r.scoreA}</span></span>
-          <span style="color:var(--court-line-dim);">&ndash;</span>
-          <span class="vs-team"><span class="score-num">${r.scoreB}</span> ${home}${teamBadgeHtml(home,44)}</span>
+      <div class="row2">
+        <div class="field">
+          <label>Overall Rating</label>
+          <input type="number" id="sim-roster-overall" min="40" max="99" required placeholder="e.g. 85">
         </div>
-        <span class="score-status">FINAL (SIMULATED)</span>
+        <div class="field">
+          <label>Age</label>
+          <input type="number" id="sim-roster-age" min="18" max="45" placeholder="e.g. 24">
+        </div>
       </div>
-      <div class="form-note">Chemistry — ${away}: ${r.chemA} · ${home}: ${r.chemB}</div>
-      ${boxScoreTableHtml({away:r.boxA, home:r.boxB}, away, home)}
-      <button class="submit-btn" style="align-self:flex-start;" onclick="handleSaveSimToScores()">Save as Final Score</button>
-    </div>
+      <div class="field">
+        <label>Archetype (for Chemistry)</label>
+        <select id="sim-roster-archetype">
+          <option value="">— None —</option>
+          <option>Scorer</option>
+          <option>Playmaker</option>
+          <option>3&D</option>
+          <option>Two-Way Wing</option>
+          <option>Rim Protector</option>
+          <option>Stretch Big</option>
+          <option>Combo Guard</option>
+        </select>
+      </div>
+      <button type="submit" class="submit-btn">Add Player</button>
+    </form>
   `;
-}
-function handleSeedSimRosters(){
-  const count = seedAllSimRosters();
-  showToast(count>0 ? `Populated ${count} teams` : 'All teams already have rosters');
-  render();
 }
 function handleAddSimRosterPlayer(e){
   e.preventDefault();
+  const league = leagues[currentLeagueId];
   const name = document.getElementById('sim-roster-name').value.trim();
   const position = document.getElementById('sim-roster-position').value.trim();
   const overall = parseInt(document.getElementById('sim-roster-overall').value,10) || null;
   const age = parseInt(document.getElementById('sim-roster-age').value,10) || null;
   const archetype = document.getElementById('sim-roster-archetype').value;
-  addSimRosterPlayer(simMyTeam, { id:'sim-r-'+Date.now(), name, position, overall, age, archetype });
+  addSimRosterPlayer(league.myTeam, { id:'sim-r-'+Date.now(), name, position, overall, age, archetype });
   showToast('Player added');
   render();
   return false;
 }
 function handleRemoveSimRosterPlayer(id){
-  removeSimRosterPlayer(simMyTeam, id);
+  const league = leagues[currentLeagueId];
+  removeSimRosterPlayer(league.myTeam, id);
   showToast('Removed');
   render();
 }
 function handleSaveRatings(){
-  const team = simMyTeam;
-  const all = localDB.get('sim-rosters') || {};
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const all = localDB.get(simRostersKey()) || {};
   const list = all[team] || [];
   const updates = {};
   document.querySelectorAll('[data-rate-id]').forEach(el=>{
@@ -1550,27 +1849,10 @@ function handleSaveRatings(){
     if(u.age !== undefined) p.age = u.age ? parseInt(u.age,10) : null;
   });
   all[team] = list;
-  localDB.set('sim-rosters', all);
+  localDB.set(simRostersKey(), all);
   simRosters = all;
   showToast('Ratings saved');
   render();
-}
-function handleSimulateGame(){
-  const opponent = document.getElementById('sim-opponent').value;
-  simTeamA = simMyTeam; simTeamB = opponent;
-  simResult = simulateGame(simMyTeam, opponent);
-  render();
-}
-function handleSaveSimToScores(){
-  const entry = {
-    id: 's-sim-'+Date.now(),
-    away: simTeamA, awayScore: simResult.scoreA,
-    home: simTeamB, homeScore: simResult.scoreB,
-    status: 'FINAL', date: new Date().toISOString().slice(0,10),
-    boxScore: { away: simResult.boxA, home: simResult.boxB }
-  };
-  saveNewScore(entry);
-  showToast('Saved to Scores');
 }
 
 /* ---------------- Render: Draft ---------------- */
@@ -2396,7 +2678,7 @@ function render(){
   else if(currentView==='draft') app.innerHTML = renderDraft();
   else if(currentView==='simulator') app.innerHTML = renderSimulator();
   else if(currentView==='simulator-choose') app.innerHTML = renderSimulatorChoose();
-  else if(currentView==='simulator-roster') app.innerHTML = renderSimulatorRosterPage();
+  else if(currentView==='league-hub') app.innerHTML = renderLeagueHub();
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
@@ -2405,7 +2687,7 @@ function render(){
   else if(currentView==='article') app.innerHTML = renderArticle();
 
   document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
-    b.classList.toggle('active', b.dataset.v===currentView || (currentView==='team' && b.dataset.v==='teams') || (currentView.startsWith('simulator') && b.dataset.v==='simulator'));
+    b.classList.toggle('active', b.dataset.v===currentView || (currentView==='team' && b.dataset.v==='teams') || ((currentView.startsWith('simulator') || currentView==='league-hub') && b.dataset.v==='simulator'));
   });
   renderNavTeamDropdown();
   window.scrollTo({top:0, behavior:'instant'});
@@ -2438,6 +2720,7 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   loadPlayerPhotos();
   loadRosters();
   loadSimRosters();
+  loadLeagues();
   loadSeasons();
   loadStatLeaders();
   loadStandings();
