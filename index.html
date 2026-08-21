@@ -438,6 +438,47 @@ async function bbsFetch(path){
     return null;
   }
 }
+
+/* ---------------- Live data: balldontlie API (real rosters for league creation) ---------------- */
+// Same public-key tradeoff as above — fine for a personal hobby project's free tier.
+const BDL_API_KEY = '7362a62b-4645-4f78-895f-cdb49ad68d1a';
+const BDL_API = 'https://api.balldontlie.io';
+async function bdlFetch(path){
+  try{
+    const res = await fetch(BDL_API + path, {
+      headers: { Authorization: BDL_API_KEY }
+    });
+    if(!res.ok){
+      console.warn('balldontlie API error', res.status, path);
+      return null;
+    }
+    return await res.json();
+  }catch(e){
+    console.warn('balldontlie API fetch failed', e);
+    return null;
+  }
+}
+let bdlTeamIdMap = null; // { ABBR: balldontlie_team_id } — fetched once and cached
+async function getBdlTeamIdMap(){
+  if(bdlTeamIdMap) return bdlTeamIdMap;
+  const result = await bdlFetch('/nba/v1/teams?per_page=100');
+  if(!result || !result.data) return null;
+  const map = {};
+  result.data.forEach(t=>{ if(t.abbreviation) map[t.abbreviation] = t.id; });
+  bdlTeamIdMap = map;
+  return map;
+}
+async function fetchRealRosterForTeam(teamAbbr){
+  const map = await getBdlTeamIdMap();
+  const bdlId = map && map[teamAbbr];
+  if(!bdlId) return null;
+  const result = await bdlFetch(`/nba/v1/players?team_ids[]=${bdlId}&per_page=100`);
+  if(!result || !result.data || result.data.length===0) return null;
+  return result.data.map(p=>({
+    name: [p.first_name, p.last_name].filter(Boolean).join(' '),
+    position: p.position || ''
+  }));
+}
 // Pull the first non-empty value out of a list of possible field names —
 // used because a few stat field names aren't fully confirmed from public docs.
 function pickField(obj, names){
@@ -753,13 +794,23 @@ function generateLeagueCode(){
   for(let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
   return code;
 }
-function seedLeagueRosters(leagueId){
+async function seedLeagueRosters(leagueId){
   const rostersForLeague = {};
-  Object.keys(ROSTER_SEED).forEach(team=>{
-    rostersForLeague[team] = ROSTER_SEED[team].map((row,i)=>({
-      id:'seed-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
-    }));
-  });
+  const teams = Object.keys(ROSTER_SEED);
+  for(const team of teams){
+    let livePlayers = null;
+    try{ livePlayers = await fetchRealRosterForTeam(team); }catch(e){ livePlayers = null; }
+    if(livePlayers && livePlayers.length){
+      rostersForLeague[team] = livePlayers.map((p,i)=>({
+        id:'live-'+team+'-'+i, name:p.name, position:p.position, overall:null, archetype:'', age:null
+      }));
+    } else {
+      // Fallback to the static best-effort dataset if the live fetch failed for this team.
+      rostersForLeague[team] = ROSTER_SEED[team].map((row,i)=>({
+        id:'seed-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
+      }));
+    }
+  }
   localDB.set('sim-rosters:'+leagueId, rostersForLeague);
 }
 function generateSeasonSchedule(myTeam){
@@ -781,7 +832,7 @@ function generateSeasonSchedule(myTeam){
   }
   return schedule;
 }
-function createLeague(name, myTeam){
+async function createLeague(name, myTeam){
   const id = 'lg-'+Date.now();
   const league = {
     id, code: generateLeagueCode(), name: name || (TEAM_NAMES[myTeam]+' League'),
@@ -790,7 +841,7 @@ function createLeague(name, myTeam){
   const all = localDB.get('leagues') || {};
   all[id] = league;
   localDB.set('leagues', all);
-  seedLeagueRosters(id);
+  await seedLeagueRosters(id);
   localDB.set('league-schedule:'+id, generateSeasonSchedule(myTeam));
   localDB.set('league-gameplan:'+id, {});
   leagues = all;
@@ -799,13 +850,13 @@ function createLeague(name, myTeam){
 function findLeagueByCode(code){
   return Object.values(leagues).find(l=>l.code.toUpperCase()===code.trim().toUpperCase());
 }
-function setLeagueTeam(leagueId, team){
+async function setLeagueTeam(leagueId, team){
   const all = localDB.get('leagues') || {};
   if(!all[leagueId]) return;
   all[leagueId].myTeam = team;
   localDB.set('leagues', all);
   leagues = all;
-  if(!localDB.get('sim-rosters:'+leagueId)) seedLeagueRosters(leagueId);
+  if(!localDB.get('sim-rosters:'+leagueId)) await seedLeagueRosters(leagueId);
   if(!localDB.get('league-schedule:'+leagueId)) localDB.set('league-schedule:'+leagueId, generateSeasonSchedule(team));
 }
 function deleteLeague(id){
@@ -1499,16 +1550,26 @@ function renderSimulatorChoose(){
     </div>
   `;
 }
-function chooseSimTeam(team){
+let creatingLeague = false;
+async function chooseSimTeam(team){
+  if(creatingLeague) return;
+  creatingLeague = true;
+  currentView = 'simulator-loading';
+  render();
   if(pendingLeagueFlow === 'join'){
     const league = findLeagueByCode(pendingJoinCode);
-    if(!league){ showToast('League no longer exists'); currentView='simulator'; render(); return; }
-    setLeagueTeam(league.id, team);
+    if(!league){ showToast('League no longer exists'); creatingLeague=false; currentView='simulator'; render(); return; }
+    await setLeagueTeam(league.id, team);
+    creatingLeague = false;
     openLeague(league.id);
   } else {
-    const league = createLeague(null, team);
+    const league = await createLeague(null, team);
+    creatingLeague = false;
     openLeague(league.id);
   }
+}
+function renderSimulatorLoading(){
+  return `<div class="empty-state" style="padding-top:120px;">Pulling real rosters… this takes a few seconds.</div>`;
 }
 
 /* ---------------- League Hub ---------------- */
@@ -1546,51 +1607,61 @@ function setLeagueTab(tab){ leagueTab = tab; simResult = null; render(); }
 function renderLeagueSeason(){
   const league = leagues[currentLeagueId];
   const schedule = loadLeagueSchedule(currentLeagueId);
-  const byMonth = {};
-  schedule.forEach(g=>{
-    const month = new Date(g.date+'T00:00:00').toLocaleDateString('en-US',{month:'long', year:'numeric'});
-    if(!byMonth[month]) byMonth[month] = [];
-    byMonth[month].push(g);
-  });
+  const remaining = schedule.filter(g=>!g.played).length;
   return `
-    <p class="form-note" style="margin-bottom:20px;">Full 82-game schedule for ${TEAM_NAMES[league.myTeam]}. Simulation logic for auto-advancing the season comes later — for now you can simulate any individual game.</p>
-    ${Object.keys(byMonth).map(month=>`
-      <h4 style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase; margin:20px 0 12px;">${month}</h4>
-      ${byMonth[month].map(g=>`
-        <div class="score-entry" style="padding:12px 20px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            <span class="form-note" style="width:34px;">#${g.gameNum}</span>
-            <span class="score-line" style="font-size:14px;">
-              ${g.home ? teamBadgeHtml(g.opponent,26)+' '+g.opponent+' @ '+teamBadgeHtml(league.myTeam,26) : teamBadgeHtml(league.myTeam,26)+' @ '+teamBadgeHtml(g.opponent,26)}
-            </span>
-            <span class="form-note">${fmtDate(g.date)}</span>
-          </div>
-          ${g.played
-            ? `<span class="score-status">${g.myScore}-${g.oppScore} FINAL</span>`
-            : `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleSimulateScheduledGame(${g.gameNum})">Simulate</button>`}
-        </div>`).join('')}
-    `).join('')}
+    <p class="form-note" style="margin-bottom:16px;">Full 82-game schedule for ${TEAM_NAMES[league.myTeam]}. Simulation logic for auto-advancing the season comes later — for now you can simulate games individually or all at once.</p>
+    ${remaining>0 ? `<button class="submit-btn" style="margin-bottom:20px;" onclick="handleSimulateAllGames()">Simulate All Remaining Games (${remaining})</button>` : `<p class="form-note" style="margin-bottom:20px; color:var(--paper);">Full season simulated.</p>`}
+    ${schedule.map(g=>`
+      <div class="score-entry" style="padding:12px 20px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="form-note" style="width:34px;">#${g.gameNum}</span>
+          <span class="score-line" style="font-size:14px;">
+            ${g.home ? teamBadgeHtml(g.opponent,26)+' '+g.opponent+' @ '+teamBadgeHtml(league.myTeam,26) : teamBadgeHtml(league.myTeam,26)+' @ '+teamBadgeHtml(g.opponent,26)}
+          </span>
+          <span class="form-note">${fmtDate(g.date)}</span>
+        </div>
+        ${g.played
+          ? `<div style="display:flex; align-items:center; gap:12px;">
+               <span class="score-status">${g.myScore}-${g.oppScore}</span>
+               <span style="font-family:'Anton',sans-serif; font-size:20px; color:${g.myScore>g.oppScore?'var(--hardwood)':'var(--buzzer)'};">${g.myScore>g.oppScore?'W':'L'}</span>
+             </div>`
+          : `<button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleSimulateScheduledGame(${g.gameNum})">Simulate</button>`}
+      </div>`).join('')}
   `;
 }
-function handleSimulateScheduledGame(gameNum){
-  const league = leagues[currentLeagueId];
-  const schedule = loadLeagueSchedule(currentLeagueId);
-  const g = schedule.find(x=>x.gameNum===gameNum);
-  if(!g) return;
+function simulateScheduledGame(schedule, g, league){
   const result = g.home ? simulateGame(g.opponent, league.myTeam) : simulateGame(league.myTeam, g.opponent);
   g.played = true;
   g.myScore = g.home ? result.scoreB : result.scoreA;
   g.oppScore = g.home ? result.scoreA : result.scoreB;
-  saveLeagueSchedule(currentLeagueId, schedule);
   const entry = {
-    id: 's-sim-'+Date.now(),
+    id: 's-sim-'+Date.now()+'-'+g.gameNum,
     away: g.home ? g.opponent : league.myTeam, awayScore: result.scoreA,
     home: g.home ? league.myTeam : g.opponent, homeScore: result.scoreB,
     status: 'FINAL', date: g.date,
     boxScore: { away: result.boxA, home: result.boxB }
   };
   saveNewScore(entry);
+}
+function handleSimulateScheduledGame(gameNum){
+  const league = leagues[currentLeagueId];
+  const schedule = loadLeagueSchedule(currentLeagueId);
+  const g = schedule.find(x=>x.gameNum===gameNum);
+  if(!g) return;
+  simulateScheduledGame(schedule, g, league);
+  saveLeagueSchedule(currentLeagueId, schedule);
   showToast(`Game ${gameNum} simulated — saved to Scores`);
+  render();
+}
+function handleSimulateAllGames(){
+  const league = leagues[currentLeagueId];
+  const schedule = loadLeagueSchedule(currentLeagueId);
+  let count = 0;
+  schedule.forEach(g=>{
+    if(!g.played){ simulateScheduledGame(schedule, g, league); count++; }
+  });
+  saveLeagueSchedule(currentLeagueId, schedule);
+  showToast(`Simulated ${count} games — all saved to Scores`);
   render();
 }
 
@@ -2678,6 +2749,7 @@ function render(){
   else if(currentView==='draft') app.innerHTML = renderDraft();
   else if(currentView==='simulator') app.innerHTML = renderSimulator();
   else if(currentView==='simulator-choose') app.innerHTML = renderSimulatorChoose();
+  else if(currentView==='simulator-loading') app.innerHTML = renderSimulatorLoading();
   else if(currentView==='league-hub') app.innerHTML = renderLeagueHub();
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
   else if(currentView==='media') app.innerHTML = renderMedia();
