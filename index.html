@@ -134,7 +134,6 @@
   /* ---------- Article grid ---------- */
   .grid-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:22px;}
   .section-title{font-family:'Anton',sans-serif; font-size:28px; color:var(--paper); text-transform:uppercase; margin:0;}
-  .article-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:26px;}
   .card{
     background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:3px; overflow:hidden;
     display:flex; flex-direction:column; transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; cursor:pointer;
@@ -324,12 +323,10 @@
 
   @media(max-width:860px){
     .hero{grid-template-columns:1fr;}
-    .article-grid{grid-template-columns:1fr 1fr;}
     nav.main{display:none;}
     .row2{grid-template-columns:1fr;}
   }
   @media(max-width:560px){
-    .article-grid{grid-template-columns:1fr;}
     .header-inner{padding:14px 16px;}
     .row4{grid-template-columns:1fr;}
   }
@@ -357,7 +354,6 @@
       <button data-v="leaders" class="display">Stat Leaders</button>
       <button data-v="media" class="display">Photos</button>
       <button data-v="standings" class="display">Standings</button>
-      <button data-v="publish" class="publish-btn display">+ Publish</button>
     </nav>
   </div>
 </header>
@@ -390,7 +386,6 @@ const WEST_TEAMS = ['OKC','DEN','MIN','LAC','DAL','GSW','MEM','LAL','SAC','PHX',
 const EAST_TEAMS = ['BOS','NYK','MIL','CLE','ORL','IND','PHI','MIA','ATL','CHI','BKN','TOR','CHA','WAS','DET'];
 
 /* ---------------- State ---------------- */
-let articles = [];
 let scores = [];
 let moves = [];
 let trades = [];
@@ -415,7 +410,6 @@ let simMyTeam = null;
 let simOpponentTeam = null;
 let currentTeam = null;
 let currentView = 'home';
-let currentArticleId = null;
 let currentConf = 'east';
 
 /* ---------------- Live data: Big Balls Sports Data API ---------------- */
@@ -493,17 +487,6 @@ const localDB = {
     }catch(e){ return false; }
   }
 };
-
-/* ---------------- Storage: articles ---------------- */
-function loadArticles(){
-  articles = localDB.get('articles') || [];
-}
-function saveNewArticle(article){
-  const stored = localDB.get('articles') || [];
-  stored.unshift(article);
-  localDB.set('articles', stored);
-  articles = stored;
-}
 
 /* ---------------- Storage: scores ---------------- */
 function loadScores(){
@@ -949,9 +932,6 @@ function showToast(msg){
 
 /* ---------------- Render: Home ---------------- */
 function renderHome(){
-  const sorted = [...articles].sort((a,b)=> new Date(b.date)-new Date(a.date));
-  const hero = sorted[0];
-  const rest = sorted.slice(1);
   const westRanked = [...WEST_TEAMS].sort((a,b)=>{
     const A = standings[a]||{w:0,l:0}, B = standings[b]||{w:0,l:0};
     const pctA = A.w+A.l ? A.w/(A.w+A.l) : 0, pctB = B.w+B.l ? B.w/(B.w+B.l) : 0;
@@ -959,20 +939,15 @@ function renderHome(){
   }).slice(0,5);
 
   const recentMoves = sortByRecency(moves).slice(0,5);
+  const leagueList = Object.values(leagues).sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
 
   return `
     <section class="hero">
       <div>
-        <p class="eyebrow">Lead Story</p>
-        ${hero ? `
-        <h1 class="hero-headline" onclick="openArticle('${hero.id}')" style="cursor:pointer">${hero.title}</h1>
-        <p class="hero-dek">${hero.dek}</p>
-        <p class="hero-meta">${hero.author} · ${fmtDate(hero.date)} · ${hero.team}</p>
-        ` : `
-        <h1 class="hero-headline">No Articles Yet</h1>
-        <p class="hero-dek">Publish your first story and it'll show up here as the lead.</p>
-        <a class="see-all" style="display:inline-block; margin-top:14px;" onclick="go('publish')">+ Publish an Article</a>
-        `}
+        <p class="eyebrow">Fairs Simulator</p>
+        <h1 class="hero-headline">Build Your Team.<br>Run Your Season.</h1>
+        <p class="hero-dek">Draft, trade, and simulate an 82-game NBA season with your own custom player ratings — play against the AI or set up a league to share with friends.</p>
+        <a class="see-all" style="display:inline-block; margin-top:18px;" onclick="go('simulator')">${leagueList.length ? 'Go to Your Leagues →' : 'Start a League →'}</a>
       </div>
       <div class="hero-side">
         <h3>Western Conference</h3>
@@ -997,34 +972,7 @@ function renderHome(){
         : `<div class="empty-state">No moves added yet. <a class="see-all" style="display:inline; border:none; padding:0;" onclick="go('moves')">Add the first one →</a></div>`}
       ${recentMoves.length ? `<a class="see-all" onclick="go('moves')" style="margin-top:14px;">All Free Agency Moves →</a>` : ''}
     </section>
-
-    <div class="divider-court"></div>
-
-    <section>
-      <div class="grid-head">
-        <h2 class="section-title">Latest</h2>
-      </div>
-      <div class="article-grid">
-        ${rest.map(cardHtml).join('')}
-      </div>
-    </section>
   `;
-}
-
-function cardHtml(a){
-  const artHtml = a.image
-    ? `<div class="card-art" style="padding:0;"><img src="${a.image}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"></div>`
-    : `<div class="card-art" style="${cardBg(a.team)}">${a.art}</div>`;
-  return `
-    <div class="card" onclick="openArticle('${a.id}')">
-      ${artHtml}
-      <div class="card-body">
-        <span class="tag">${a.team}</span>
-        <h4>${a.title}</h4>
-        <p>${a.dek}</p>
-        <span class="card-foot">${a.author} · ${fmtDate(a.date)}</span>
-      </div>
-    </div>`;
 }
 
 /* ---------------- Render: Standings (editable) ---------------- */
@@ -1296,17 +1244,6 @@ function handleDeleteMove(id){
 }
 
 /* ---------------- Simulator: chemistry, matchups, game engine ---------------- */
-function computeTeamChemistry(team){
-  const roster = (simRosters[team]||[]).filter(p=>p.archetype);
-  if(roster.length===0) return 75;
-  const counts = {};
-  roster.forEach(p=>{ counts[p.archetype]=(counts[p.archetype]||0)+1; });
-  const distinct = Object.keys(counts).length;
-  let chem = 72 + distinct*3;
-  const maxCount = Math.max(...Object.values(counts));
-  if(maxCount>2) chem -= (maxCount-2)*3;
-  return Math.max(55, Math.min(99, Math.round(chem)));
-}
 function computeOverall(p){
   const attrs = [p.threePoint, p.midrange, p.layup, p.standingDunk, p.drivingDunk, p.interiorPresence,
     p.playmaking, p.speed, p.vertical, p.offReb, p.defReb, p.perimeterD, p.interiorD, p.steal, p.block]
@@ -1323,12 +1260,35 @@ function insideScoringRating(p){
   const verticalBonus = ((p.vertical==null?50:p.vertical) - 50) / 8;
   return base + verticalBonus;
 }
+// Real team profile computed straight from attributes (minutes-weighted where a gameplan exists,
+// overall-weighted otherwise) — surfaces genuine strengths/weaknesses instead of a fake archetype label.
+// This is display-only; the possession engine already uses these same attributes directly, so a team
+// with two weak perimeter defenders or no real shooters already plays worse without any extra system.
+function computeTeamProfile(team){
+  const roster = (simRosters[team]||[]).filter(p=>computeOverall(p)!=null).map(p=>({...p, overall: computeOverall(p)}));
+  if(roster.length===0) return { strongest:null, weakest:null };
+  const weights = usageWeights(team, roster);
+  const totalWeight = weights.reduce((s,w)=>s+w.weight,0);
+  const labels = { threePoint:'3PT', midrange:'Midrange', layup:'Layup', standingDunk:'Standing Dunk',
+    drivingDunk:'Driving Dunk', interiorPresence:'Interior Presence', playmaking:'Playmaking', speed:'Speed',
+    vertical:'Vertical', offReb:'Off. Rebound', defReb:'Def. Rebound', perimeterD:'Perimeter D',
+    interiorD:'Interior D', steal:'Steal', block:'Block' };
+  const teamAvg = {};
+  Object.keys(labels).forEach(key=>{
+    const sum = weights.reduce((s,w)=> s + (w.player[key]||50)*w.weight, 0);
+    teamAvg[key] = totalWeight ? sum/totalWeight : 50;
+  });
+  const sorted = Object.entries(teamAvg).sort((a,b)=>b[1]-a[1]);
+  return {
+    strongest: { label: labels[sorted[0][0]], value: Math.round(sorted[0][1]) },
+    weakest: { label: labels[sorted[sorted.length-1][0]], value: Math.round(sorted[sorted.length-1][1]) }
+  };
+}
 function teamPower(team){
   const roster = (simRosters[team]||[]).filter(p=>computeOverall(p)!=null);
-  const chemistry = computeTeamChemistry(team);
   const withOverall = roster.map(p=>({...p, overall: computeOverall(p)}));
   const avgOverall = withOverall.length ? withOverall.reduce((s,p)=>s+p.overall,0)/withOverall.length : 70;
-  return { avgOverall, chemistry, players: withOverall };
+  return { avgOverall, players: withOverall };
 }
 // Weighted usage share per player — driven by assigned minutes if a gameplan exists,
 // otherwise falls back to overall rating so the sim still works before you set minutes.
@@ -2534,7 +2494,6 @@ function renderTeamPage(team){
   const s = standings[team] || {w:0,l:0};
   const conf = WEST_TEAMS.includes(team) ? 'Western' : 'Eastern';
 
-  const teamArticles = sortByRecency(articles.filter(a=>a.team===team)).slice(0,4);
   const teamMoves = moves.filter(m=>m.from===team||m.to===team).map(m=>({...m,_type:'move'}));
   const teamTrades = trades.filter(t=>(t.teams||[]).some(side=>side.team===team)).map(t=>({...t,_type:'trade'}));
   const teamTransactions = sortByRecency([...teamMoves, ...teamTrades]).slice(0,5);
@@ -2567,11 +2526,6 @@ function renderTeamPage(team){
           <p class="hero-meta" style="margin-top:6px;">${conf}ern Conference · ${s.w}-${s.l}</p>
         </div>
       </div>
-
-      <div class="divider-court"></div>
-
-      <h3 class="section-title" style="font-size:20px; margin-bottom:16px;">Recent News</h3>
-      ${teamArticles.length ? `<div class="article-grid">${teamArticles.map(cardHtml).join('')}</div>` : `<div class="empty-state">No articles tagged for this team yet.</div>`}
 
       <div class="divider-court"></div>
 
@@ -2641,141 +2595,6 @@ function handleRemoveRosterPlayer(team, id){
   render();
 }
 
-/* ---------------- Render: Article detail ---------------- */
-function renderArticle(){
-  const a = articles.find(x=>x.id===currentArticleId);
-  if(!a) return `<p style="padding-top:60px;">Article not found. <a class="back-link" onclick="go('home')">&larr; Back home</a></p>`;
-  const paras = a.content.split('\n\n').map(p=>`<p>${p}</p>`).join('');
-  return `
-    <div class="article-detail" style="padding-top:36px;">
-      <a class="back-link" onclick="go('home')">&larr; Back to Home</a>
-      <p class="eyebrow">${a.team}</p>
-      <h1>${a.title}</h1>
-      <p class="meta">${a.author} · ${fmtDate(a.date)}</p>
-      ${a.image
-        ? `<div class="art-cap" style="padding:0; overflow:hidden;"><img src="${a.image}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"></div>`
-        : `<div class="art-cap" style="${cardBg(a.team)}">${a.art}</div>`}
-      <div class="body-copy">${paras}</div>
-      ${a.sourceUrl ? `<p class="form-note" style="margin-top:24px; padding-top:18px; border-top:1px solid var(--ink-line);">Based on reporting${a.sourceName?' from '+a.sourceName:''} — <a href="${a.sourceUrl}" target="_blank" rel="noopener" style="color:var(--hardwood);">read the full original story →</a></p>` : ''}
-    </div>
-  `;
-}
-
-/* ---------------- Render: Publish ---------------- */
-function renderPublish(){
-  const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t}</option>`).join('');
-  return `
-    <div class="publish-panel" style="padding-top:40px;">
-      <p class="eyebrow">Newsroom</p>
-      <h2 class="section-title" style="margin-bottom:10px;">Publish an Article</h2>
-      <p class="form-note" style="margin-bottom:22px;">Paste a link to auto-fill the headline, photo, and source — then write your own take in the body below.</p>
-
-      <div class="row2" style="align-items:end; margin-bottom:8px;">
-        <div class="field" style="margin-bottom:0;">
-          <label>Paste a Link</label>
-          <input type="url" id="f-link-input" placeholder="https://www.espn.com/...">
-        </div>
-        <button type="button" class="ghost-btn" style="height:44px;" id="fetchLinkBtn" onclick="handleFetchLinkPreview()">Fetch Preview</button>
-      </div>
-      <div id="linkPreviewBox"></div>
-
-      <div class="divider-court"></div>
-
-      <form id="publishForm" onsubmit="return handlePublish(event)">
-        <div class="field">
-          <label>Headline</label>
-          <input type="text" id="f-title" required maxlength="120" placeholder="e.g. Trade Deadline Winners and Losers">
-        </div>
-        <div class="row2">
-          <div class="field">
-            <label>Team Tag</label>
-            <select id="f-team">${teamOptions}</select>
-          </div>
-          <div class="field">
-            <label>Author</label>
-            <input type="text" id="f-author" placeholder="Your name" value="Newsroom">
-          </div>
-        </div>
-        <div class="field">
-          <label>Dek (one-line summary)</label>
-          <input type="text" id="f-dek" required maxlength="160" placeholder="A short summary shown on the homepage card">
-        </div>
-        <div class="field">
-          <label>Article Body</label>
-          <textarea id="f-content" required placeholder="Write your own summary/take. Separate paragraphs with a blank line. If this is based on an outside story, write it in your own words — don't paste the original article text."></textarea>
-        </div>
-        <div class="row2">
-          <div class="field">
-            <label>Source Name (optional)</label>
-            <input type="text" id="f-source-name" maxlength="60" placeholder="e.g. ESPN">
-          </div>
-          <div class="field">
-            <label>Source URL (optional)</label>
-            <input type="url" id="f-source-url" placeholder="https://...">
-          </div>
-        </div>
-        <button type="submit" class="submit-btn" id="submitBtn">Publish Article</button>
-        <p class="form-note">Published articles are stored and visible to everyone who opens this page — there's no login, so treat it like a shared, public newsroom. If you're referencing an outside story, add a Source link so readers can read the full original — don't copy-paste the original text in, that's their copyrighted work, not yours to republish.</p>
-      </form>
-    </div>
-  `;
-}
-let fetchedArticleImage = null;
-async function handleFetchLinkPreview(){
-  const btn = document.getElementById('fetchLinkBtn');
-  const url = document.getElementById('f-link-input').value.trim();
-  if(!url){ showToast('Paste a link first'); return; }
-  btn.disabled = true; btn.textContent = 'Fetching…';
-  try{
-    const res = await fetch('https://api.microlink.io?url=' + encodeURIComponent(url));
-    const json = await res.json();
-    if(json.status !== 'success'){ throw new Error('bad response'); }
-    const d = json.data;
-    document.getElementById('f-title').value = d.title || '';
-    document.getElementById('f-dek').value = (d.description || '').slice(0,160);
-    document.getElementById('f-source-name').value = (d.publisher || d.author || '') ;
-    document.getElementById('f-source-url').value = url;
-    fetchedArticleImage = d.image && d.image.url ? d.image.url : null;
-    const box = document.getElementById('linkPreviewBox');
-    box.innerHTML = fetchedArticleImage
-      ? `<div style="margin:12px 0; display:flex; gap:14px; align-items:center;"><img src="${fetchedArticleImage}" style="width:90px;height:60px;object-fit:cover;border-radius:2px;"><span class="form-note">Preview image will be used as the article's photo.</span></div>`
-      : `<p class="form-note" style="margin:10px 0;">No preview image found on that page — headline and source were still filled in.</p>`;
-    if(!document.getElementById('f-content').value.trim()){
-      document.getElementById('f-content').placeholder = 'Write your own take on this story in your own words — don\'t paste the original article text.';
-    }
-    showToast('Preview loaded — write your own take below');
-  }catch(err){
-    showToast('Could not fetch a preview for that link');
-  }
-  btn.disabled = false; btn.textContent = 'Fetch Preview';
-}
-async function handlePublish(e){
-  e.preventDefault();
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = 'Publishing…';
-  const title = document.getElementById('f-title').value.trim();
-  const team = document.getElementById('f-team').value;
-  const author = document.getElementById('f-author').value.trim() || 'Newsroom';
-  const dek = document.getElementById('f-dek').value.trim();
-  const content = document.getElementById('f-content').value.trim();
-  const sourceName = document.getElementById('f-source-name').value.trim();
-  const sourceUrl = document.getElementById('f-source-url').value.trim();
-  const icons = ['🏀','📰','🎯','📈','🔥','🧠'];
-  const article = {
-    id: 'a-'+Date.now(),
-    title, team, author, dek, content,
-    sourceName, sourceUrl,
-    image: fetchedArticleImage,
-    date: new Date().toISOString().slice(0,10),
-    art: icons[Math.floor(Math.random()*icons.length)]
-  };
-  saveNewArticle(article);
-  fetchedArticleImage = null;
-  showToast('Article published');
-  go('home');
-  return false;
-}
-
 /* ---------------- Router ---------------- */
 function render(){
   const app = document.getElementById('app');
@@ -2792,8 +2611,6 @@ function render(){
   else if(currentView==='media') app.innerHTML = renderMedia();
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
   else if(currentView==='team') app.innerHTML = renderTeamPage(currentTeam);
-  else if(currentView==='publish') app.innerHTML = renderPublish();
-  else if(currentView==='article') app.innerHTML = renderArticle();
 
   document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
     b.classList.toggle('active', b.dataset.v===currentView || (currentView==='team' && b.dataset.v==='teams') || ((currentView.startsWith('simulator') || currentView==='league-hub') && b.dataset.v==='simulator'));
@@ -2812,7 +2629,6 @@ function go(view){
     render();
   }
 }
-function openArticle(id){ currentArticleId = id; currentView = 'article'; render(); }
 function setConf(c){ currentConf = c; render(); }
 
 document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
@@ -2821,7 +2637,6 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
 
 /* ---------------- Init ---------------- */
 (function init(){
-  loadArticles();
   loadScores();
   loadMoves();
   loadTrades();
