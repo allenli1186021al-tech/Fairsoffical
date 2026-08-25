@@ -288,24 +288,34 @@
 
   /* ---------- Simulator mode selection ---------- */
   .sim-mode-grid{
-    display:grid; grid-template-columns:1fr 1fr; gap:28px; max-width:760px; margin:0 auto;
+    display:grid; grid-template-columns:1fr 1fr; gap:28px; max-width:820px; margin:0 auto;
   }
   .sim-mode-card{
-    background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:6px;
-    padding:36px 28px; text-align:center; cursor:pointer;
-    box-shadow:0 10px 28px rgba(0,0,0,.28); transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    border:2px solid var(--ink-line); border-radius:3px; overflow:hidden;
+    background:var(--ink-soft); box-shadow:0 10px 28px rgba(0,0,0,.28);
+    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
   }
   .sim-mode-card:hover{ transform:translateY(-6px); box-shadow:0 20px 44px rgba(0,0,0,.4); border-color:var(--hardwood); }
-  .sim-mode-icon{
-    width:88px; height:88px; border-radius:50%; margin:0 auto 20px;
-    display:flex; align-items:center; justify-content:center; font-size:40px;
-    box-shadow:0 8px 20px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.1);
-  }
+  .sim-mode-head{ text-align:center; padding:20px 16px 14px; cursor:pointer; }
   .sim-mode-label{
-    font-family:'Anton',sans-serif; font-size:26px; letter-spacing:.03em; text-transform:uppercase;
-    color:var(--paper); margin-bottom:10px;
+    font-family:'Anton',sans-serif; font-size:30px; letter-spacing:.02em; text-transform:uppercase;
+    color:var(--paper); line-height:1;
   }
-  @media(max-width:640px){ .sim-mode-grid{grid-template-columns:1fr;} }
+  .sim-mode-photo{
+    position:relative; height:280px; background:linear-gradient(160deg, var(--ink), var(--ink-soft));
+    cursor:pointer; overflow:hidden;
+  }
+  .sim-mode-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .sim-mode-photo-empty{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+    border:1.5px dashed var(--ink-line); margin:10px; border-radius:2px;
+    color:var(--court-line-dim); transition:border-color .15s, color .15s;
+  }
+  .sim-mode-card:hover .sim-mode-photo-empty{ border-color:var(--hardwood); color:var(--paper-dim); }
+  .sim-mode-photo-empty .plus{ font-family:'Anton',sans-serif; font-size:32px; line-height:1; }
+  .sim-mode-photo-empty span.hint{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.03em; }
+  .sim-mode-desc{ padding:14px 18px 20px; text-align:center; }
+  @media(max-width:640px){ .sim-mode-grid{grid-template-columns:1fr;} .sim-mode-photo{height:220px;} }
 
   /* ---------- Article detail ---------- */
   .article-detail{max-width:720px; margin:0 auto;}
@@ -399,6 +409,7 @@ let playerPhotos = {}; // { normalizedName: {name, photo:dataUrl} }
 let rosters = {}; // { TEAM: [{id, name, number, position}] } — used by Find Your Team
 let simRosters = {}; // { TEAM: [{id, name, overall, archetype, age}] } — Simulator-only, separate from rosters
 let simMode = null; // 'ai' | 'friends'
+let simModeImages = {}; // { ai: dataUrl, friends: dataUrl } — user-uploaded, never sourced by the assistant
 let leagues = {}; // { leagueId: {id, code, name, myTeam, createdAt} }
 let currentLeagueId = null;
 let leagueTab = 'season'; // 'season' | 'gameplan' | 'trades' | 'roster'
@@ -837,6 +848,25 @@ function handleRemovePlayerPhoto(nameKey){
 }
 
 /* ---------------- Click-anywhere upload (Canva-style) ---------------- */
+function loadSimModeImages(){ simModeImages = localDB.get('sim-mode-images') || {}; }
+function triggerSimModeImageUpload(mode){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = function(){
+    const file = input.files[0];
+    if(!file) return;
+    resizeImageToDataUrl(file, 500, 'cover', (dataUrl)=>{
+      const all = localDB.get('sim-mode-images') || {};
+      all[mode] = dataUrl;
+      localDB.set('sim-mode-images', all);
+      simModeImages = all;
+      showToast('Photo updated');
+      render();
+    });
+  };
+  input.click();
+}
 function triggerTeamLogoUpload(team){
   const input = document.createElement('input');
   input.type = 'file';
@@ -1457,15 +1487,31 @@ function renderSimulator(){
       ` : ''}
 
       <div class="sim-mode-grid">
-        <div class="sim-mode-card" onclick="startSimMode('ai')">
-          <div class="sim-mode-icon" style="background:linear-gradient(160deg, var(--hardwood), var(--hardwood-deep));">🤖</div>
-          <div class="sim-mode-label">VS <span style="color:var(--hardwood);">AI</span></div>
-          <p class="form-note">Create a new league and play against AI-controlled teams.</p>
+        <div class="sim-mode-card">
+          <div class="sim-mode-head" onclick="startSimMode('ai')">
+            <div class="sim-mode-label">VS <span style="color:var(--hardwood);">AI</span></div>
+          </div>
+          <div class="sim-mode-photo" data-mode-key="ai" onclick="triggerSimModeImageUpload('ai')">
+            ${simModeImages.ai
+              ? `<img src="${simModeImages.ai}" alt="">`
+              : `<div class="sim-mode-photo-empty"><span class="plus">+</span><span class="hint">CLICK TO ADD YOUR OWN PHOTO</span></div>`}
+          </div>
+          <div class="sim-mode-desc" onclick="startSimMode('ai')">
+            <p class="form-note">Create a new league and play against AI-controlled teams.</p>
+          </div>
         </div>
-        <div class="sim-mode-card" onclick="promptJoinLeague()">
-          <div class="sim-mode-icon" style="background:linear-gradient(160deg, var(--buzzer), #8f2e26);">🎮</div>
-          <div class="sim-mode-label">JOIN BY <span style="color:var(--buzzer);">CODE</span></div>
-          <p class="form-note">Enter a league code to join and pick your team.</p>
+        <div class="sim-mode-card">
+          <div class="sim-mode-head" onclick="promptJoinLeague()">
+            <div class="sim-mode-label">VS <span style="color:var(--buzzer);">FRIENDS</span></div>
+          </div>
+          <div class="sim-mode-photo" data-mode-key="friends" onclick="triggerSimModeImageUpload('friends')">
+            ${simModeImages.friends
+              ? `<img src="${simModeImages.friends}" alt="">`
+              : `<div class="sim-mode-photo-empty"><span class="plus">+</span><span class="hint">CLICK TO ADD YOUR OWN PHOTO</span></div>`}
+          </div>
+          <div class="sim-mode-desc" onclick="promptJoinLeague()">
+            <p class="form-note">Enter a league code to join and pick your team.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -2645,6 +2691,7 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   loadRosters();
   loadSimRosters();
   loadLeagues();
+  loadSimModeImages();
   loadSeasons();
   loadStatLeaders();
   loadStandings();
