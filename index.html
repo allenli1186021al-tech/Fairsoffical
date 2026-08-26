@@ -31,11 +31,6 @@
     -webkit-font-smoothing:antialiased;
   }
   .display{font-family:'Anton', sans-serif; letter-spacing:0.02em; text-transform:uppercase;}
-img {
-  max-width: 100%;
-  height: auto;
-  object-fit: contain;
-}
   .mono{font-family:'JetBrains Mono', monospace;}
   ::selection{background:var(--hardwood); color:var(--ink);}
   a{color:inherit; text-decoration:none;}
@@ -307,20 +302,20 @@ img {
     color:var(--paper); line-height:1;
   }
   .sim-mode-photo{
-    position:relative; height:280px; background:linear-gradient(160deg, var(--ink), var(--ink-soft));
-    cursor:pointer; overflow:hidden;
+    position:relative; min-height:180px; background:linear-gradient(160deg, var(--ink), var(--ink-soft));
+    cursor:pointer; overflow:hidden; display:flex; align-items:center; justify-content:center;
   }
-  .sim-mode-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .sim-mode-photo img{ width:100%; height:auto; display:block; }
   .sim-mode-photo-empty{
     position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
-    border:1.5px dashed var(--ink-line); margin:10px; border-radius:2px;
+    border:1.5px dashed var(--ink-line); margin:10px; border-radius:2px; min-height:160px;
     color:var(--court-line-dim); transition:border-color .15s, color .15s;
   }
   .sim-mode-card:hover .sim-mode-photo-empty{ border-color:var(--hardwood); color:var(--paper-dim); }
   .sim-mode-photo-empty .plus{ font-family:'Anton',sans-serif; font-size:32px; line-height:1; }
   .sim-mode-photo-empty span.hint{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.03em; }
   .sim-mode-desc{ padding:14px 18px 20px; text-align:center; }
-  @media(max-width:640px){ .sim-mode-grid{grid-template-columns:1fr;} .sim-mode-photo{height:220px;} }
+  @media(max-width:640px){ .sim-mode-grid{grid-template-columns:1fr;} }
 
   /* ---------- Article detail ---------- */
   .article-detail{max-width:720px; margin:0 auto;}
@@ -717,10 +712,49 @@ function generateLeagueCode(){
   for(let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
   return code;
 }
+// Real current rosters (name, position) sourced from RealGM.com — filled in team by team.
+// Teams not yet covered here just start blank, same as before.
+const REAL_ROSTERS = {
+  ATL: [['Nickeil Alexander-Walker','SG'],['Tony Bradley','C'],['Devin Carter','G'],['Dyson Daniels','GF'],
+    ["N'Faly Dante",'PF'],['RayJ Dennis','PG'],['Nikola Djurisic','F'],['Keshon Gilbert','G'],['Mouhamed Gueye','F'],
+    ['Buddy Hield','G'],['Caleb Houstan','SF'],['Jalen Johnson','PF'],['Luke Kennard','SG'],['Corey Kispert','SF'],
+    ['Christian Koloko','C'],['Vit Krejci','PG'],['Jonathan Kuminga','F'],['Jock Landale','C'],['C.J. McCollum','G'],
+    ["Eli N'Diaye",'C'],['Asa Newell','PF'],['Onyeka Okongwu','PF'],['Kristaps Porzingis','FC'],['Duop Reath','C'],
+    ['Zaccharie Risacher','F'],['Jacob Toppin','SF'],['Gabe Vincent','G'],['Keaton Wallace','G'],
+    ['Malik Williams','C'],['Trae Young','PG']],
+  BOS: [['Dalano Banton','PG'],['Charles Bassey','PF'],['Chris Boucher','PF'],['Jaylen Brown','SF'],['Luka Garza','C'],
+    ['Hugo Gonzalez','F'],['Ron Harper Jr.','G'],['Sam Hauser','SF'],['Josh Minott','F'],['Payton Pritchard','PG'],
+    ['Neemias Queta','C'],['Baylor Scheierman','PG'],['Max Shulga','G'],['Anfernee Simons','SG'],['Jayson Tatum','SF'],
+    ['Xavier Tillman Sr.','PF'],['John Tonje','GF'],['Nikola Vucevic','PF'],['Jordan Walsh','F'],['Derrick White','G'],
+    ['Amari Williams','PF']],
+  BKN: [['Ochai Agbaji','SF'],['Nicolas Claxton','C'],['Noah Clowney','F'],['Egor Demin','PG'],['Tyson Etienne','G'],
+    ['Haywood Highsmith','F'],['Chaney Johnson','F'],['E.J. Liddell','PF'],['Terance Mann','SG'],
+    ['Tyrese Martin','GF'],['Josh Minott','F'],['Grant Nelson','F'],['Michael Porter Jr.','PF'],['Drake Powell','F'],
+    ['Ben Saraf','G'],['Tre Scott','SF'],["Day'Ron Sharpe",'PF'],['Malachi Smith','G'],['Cam Thomas','PG'],
+    ['Nolan Traore','F'],['Ziaire Williams','F'],['Jalen Wilson','F'],['Danny Wolf','C']],
+  NYK: [['Jose Alvarado','G'],['OG Anunoby','SF'],['Mikal Bridges','SG'],['Jalen Brunson','PG'],['Jordan Clarkson','G'],
+    ['Pacome Dadiet','SF'],['Mohamed Diawara','PF'],['Tosan Evbuomwan','SF'],['Josh Hart','SG'],['Ariel Hukporti','C'],
+    ['Trey Jemison','PF'],['Dillon Jones','PG'],['Tyler Kolek','G'],['Miles McBride','G'],
+    ['Kevin McCullar Jr.','PG'],['Mitchell Robinson','C'],['Landry Shamet','PG'],['Jeremy Sochan','SG'],
+    ['Karl-Anthony Towns','C'],['Guerschon Yabusele','PF']],
+  OKC: [['Brooks Barnhizer','SF'],['Buddy Boeheim','SG'],['Branden Carlson','PF'],['Alex Caruso','G'],
+    ['Ousmane Dieng','SG'],['Luguentz Dort','PG'],['Shai Gilgeous-Alexander','PG'],['Isaiah Hartenstein','PF'],
+    ['Chet Holmgren','C'],['Isaiah Joe','SG'],['Jared McCain','G'],['Ajay Mitchell','PG'],['Payton Sandfort','PF'],
+    ['Thomas Sorber','FC'],['Nikola Topic','PG'],['Cason Wallace','G'],['Aaron Wiggins','F'],['Jalen Williams','G'],
+    ['Jaylin Williams','C'],['Kenrich Williams','SF'],['Chris Youngblood','SG']]
+};
 function seedLeagueRosters(leagueId){
-  // Blank slate — every team starts with an empty roster. Add players yourself via the Roster tab.
+  // Real rosters (name+position) where we've pulled them from RealGM; blank slate for every other team.
   const rostersForLeague = {};
-  Object.keys(TEAM_COLORS).forEach(team=>{ rostersForLeague[team] = []; });
+  Object.keys(TEAM_COLORS).forEach(team=>{
+    if(REAL_ROSTERS[team]){
+      rostersForLeague[team] = REAL_ROSTERS[team].map((row,i)=>({
+        id:'real-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
+      }));
+    } else {
+      rostersForLeague[team] = [];
+    }
+  });
   localDB.set('sim-rosters:'+leagueId, rostersForLeague);
 }
 function generateSeasonSchedule(myTeam){
@@ -785,6 +819,17 @@ function resizeImageToDataUrl(file, size, mode, callback){
   reader.onload = function(e){
     const img = new Image();
     img.onload = function(){
+      if(mode === 'natural'){
+        // Preserve the image's exact original proportions — only shrinks if it's larger than the max dimension.
+        const scale = Math.min(1, size / Math.max(img.width, img.height));
+        const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/png'));
+        return;
+      }
       const canvas = document.createElement('canvas');
       canvas.width = size; canvas.height = size;
       const ctx = canvas.getContext('2d');
@@ -803,6 +848,28 @@ function resizeImageToDataUrl(file, size, mode, callback){
         ctx.drawImage(img, (size-w)/2, (size-h)/2, w, h);
         callback(canvas.toDataURL('image/png'));
       }
+    };
+    img.onerror = function(){ showToast('Could not read that image'); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function(){ showToast('Could not read that file'); };
+  reader.readAsDataURL(file);
+}
+// Keeps the image's own width/height ratio intact — no cropping, no forcing into a square —
+// just scaled down if it's larger than maxDimension. Used where the layout should reshape
+// around whatever the person uploads, rather than the image being forced into a fixed box.
+function resizeImageKeepAspect(file, maxDimension, callback){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL('image/png'), w, h);
     };
     img.onerror = function(){ showToast('Could not read that image'); };
     img.src = e.target.result;
@@ -861,7 +928,7 @@ function triggerSimModeImageUpload(mode){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 500, 'cover', (dataUrl)=>{
+    resizeImageToDataUrl(file, 700, 'natural', (dataUrl)=>{
       const all = localDB.get('sim-mode-images') || {};
       all[mode] = dataUrl;
       localDB.set('sim-mode-images', all);
