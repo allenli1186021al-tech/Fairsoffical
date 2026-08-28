@@ -1346,18 +1346,56 @@ function handleDeleteMove(id){
 }
 
 /* ---------------- Simulator: chemistry, matchups, game engine ---------------- */
+// Tendency lookup — blank tendencies read as a neutral 50 so unrated players still play sensibly.
+function t(p, key){
+  const v = p ? p[key] : null;
+  return (v==null || isNaN(v)) ? 50 : Number(v);
+}
+// How much Overall each attribute is worth. Scoring, playmaking and defense drive the number;
+// Stamina/Durability/Hustle matter but shouldn't inflate a limited player's rating.
+const ATTR_WEIGHTS = {
+  threePoint:1.2, midrange:0.9, layup:1, standingDunk:0.7, drivingDunk:0.8, interiorPresence:0.9,
+  postScoring:0.7, freeThrow:0.5, drawFoul:0.6, playmaking:1.2, shotIQ:0.8, hands:0.6,
+  speed:0.9, vertical:0.6, offReb:0.7, defReb:0.8,
+  perimeterD:1.1, interiorD:1, defenseIQ:0.9, steal:0.7, block:0.7,
+  stamina:0.3, durability:0.2, hustle:0.4
+};
 function computeOverall(p){
-  const attrs = [p.threePoint, p.midrange, p.layup, p.standingDunk, p.drivingDunk, p.interiorPresence,
-    p.playmaking, p.speed, p.vertical, p.offReb, p.defReb, p.perimeterD, p.interiorD, p.steal, p.block]
-    .filter(v=>v!=null && !isNaN(v));
-  if(attrs.length===0) return null;
-  return Math.round(attrs.reduce((a,b)=>a+b,0)/attrs.length);
+  let sum = 0, weight = 0;
+  Object.entries(ATTR_WEIGHTS).forEach(([key,w])=>{
+    const v = p[key];
+    if(v!=null && !isNaN(v)){ sum += Number(v)*w; weight += w; }
+  });
+  if(weight===0) return null;
+  return Math.round(sum/weight);
+}
+// Heavy minutes wear down low-stamina players — a small, late-game-ish efficiency tax.
+function fatiguePenalty(p){
+  const gameplan = currentLeagueId ? loadLeagueGameplan(currentLeagueId) : {};
+  const mins = parseInt(gameplan[p.id],10);
+  if(!mins || mins <= 30) return 0;
+  const stamina = p.stamina==null ? 50 : p.stamina;
+  return Math.max(0, Math.min(0.06, (mins-30)/100 * (75-stamina)/100));
+}
+// Short human-readable read of a player's tendencies for the roster card.
+function tendencyRead(p){
+  const bits = [];
+  const usage = t(p,'tendUsage');
+  if(usage >= 70) bits.push('High usage');
+  else if(usage <= 35) bits.push('Low usage');
+  const mix = shotMix(p);
+  if(mix.three >= 0.45) bits.push('3PT-heavy');
+  else if(mix.inside >= 0.55) bits.push('Rim-heavy');
+  else if(mix.mid >= 0.4) bits.push('Midrange-heavy');
+  if(t(p,'tendPass') >= 70) bits.push('Pass-first');
+  else if(t(p,'tendShot') >= 75) bits.push('Shoot-first');
+  return bits.slice(0,2).join(' · ');
 }
 // A shooter's effective "at the rim" scoring rating — blends their finishing attributes plus a small
-// boost from Vertical (elite leapers finish a bit better through contact) and Driving Dunk specifically
-// on transition-style plays. Falls back to 50 for any attribute a player hasn't been given yet.
+// boost from Vertical (elite leapers finish a bit better through contact) and Post Scoring for bigs.
+// Falls back to 50 for any attribute a player hasn't been given yet.
 function insideScoringRating(p){
-  const parts = [p.layup, p.standingDunk, p.drivingDunk, p.interiorPresence].map(v=> v==null ? 50 : v);
+  const parts = [p.layup, p.standingDunk, p.drivingDunk, p.interiorPresence, p.postScoring].map(v=> v==null ? 50 : v);
   const base = parts.reduce((a,b)=>a+b,0)/parts.length;
   const verticalBonus = ((p.vertical==null?50:p.vertical) - 50) / 8;
   return base + verticalBonus;
@@ -1372,9 +1410,10 @@ function computeTeamProfile(team){
   const weights = usageWeights(team, roster);
   const totalWeight = weights.reduce((s,w)=>s+w.weight,0);
   const labels = { threePoint:'3PT', midrange:'Midrange', layup:'Layup', standingDunk:'Standing Dunk',
-    drivingDunk:'Driving Dunk', interiorPresence:'Interior Presence', playmaking:'Playmaking', speed:'Speed',
-    vertical:'Vertical', offReb:'Off. Rebound', defReb:'Def. Rebound', perimeterD:'Perimeter D',
-    interiorD:'Interior D', steal:'Steal', block:'Block' };
+    drivingDunk:'Driving Dunk', interiorPresence:'Interior Presence', postScoring:'Post Scoring',
+    freeThrow:'Free Throw', drawFoul:'Draw Foul', playmaking:'Playmaking', shotIQ:'Shot IQ', hands:'Hands',
+    speed:'Speed', vertical:'Vertical', offReb:'Off. Rebound', defReb:'Def. Rebound', perimeterD:'Perimeter D',
+    interiorD:'Interior D', defenseIQ:'Defensive IQ', steal:'Steal', block:'Block', hustle:'Hustle' };
   const teamAvg = {};
   Object.keys(labels).forEach(key=>{
     const sum = weights.reduce((s,w)=> s + (w.player[key]||50)*w.weight, 0);
@@ -1392,15 +1431,15 @@ function teamPower(team){
   const avgOverall = withOverall.length ? withOverall.reduce((s,p)=>s+p.overall,0)/withOverall.length : 70;
   return { avgOverall, players: withOverall };
 }
-// Weighted usage share per player — driven by assigned minutes if a gameplan exists,
-// otherwise falls back to overall rating so the sim still works before you set minutes.
+// Weighted usage share per player — assigned minutes (if a gameplan exists) multiplied by the
+// player's Usage tendency, so a bench guy set to "high usage" really does hunt his own shot.
 function usageWeights(team, players){
   const gameplan = currentLeagueId ? loadLeagueGameplan(currentLeagueId) : {};
   const hasMinutes = players.some(p=>gameplan[p.id]);
-  return players.map(p=>({
-    player: p,
-    weight: hasMinutes ? (gameplan[p.id]||1) : Math.max(1, p.overall-50)
-  }));
+  return players.map(p=>{
+    const base = hasMinutes ? (gameplan[p.id]||1) : Math.max(1, (p.overall||computeOverall(p)||60)-50);
+    return { player: p, weight: Math.max(0.5, base * (0.5 + t(p,'tendUsage')/100)) };
+  });
 }
 function weightedPick(weighted){
   const total = weighted.reduce((s,w)=>s+w.weight,0);
@@ -1414,6 +1453,15 @@ function weightedPickByAttr(players, attrKey){
   const weighted = players.map(p=>({player:p, weight: Math.max(1, (p[attrKey]||50)-30)}));
   return weightedPick(weighted);
 }
+// Normalized shot-location mix from a player's frequency tendencies. Inside soaks up
+// whatever is left after three / midrange / post, so a player with no tendencies set
+// still gets a sane, balanced distribution.
+function shotMix(p){
+  const three = t(p,'tendThree'), mid = t(p,'tendMid'), post = t(p,'tendPost'), drive = t(p,'tendDrive');
+  const inside = (drive + post) / 2 + 20;
+  const total = three + mid + inside;
+  return { three: three/total, mid: mid/total, inside: inside/total };
+}
 function simulatePossessions(offense, defense, numPossessions){
   const box = {};
   offense.players.forEach(p=> box[p.id] = {name:p.name, pts:0, reb:0, ast:0, stl:0, blk:0, tov:0});
@@ -1422,13 +1470,18 @@ function simulatePossessions(offense, defense, numPossessions){
   const oAvg = (key) => offense.players.reduce((s,p)=>s+(p[key]||50),0)/offense.players.length;
   const dAvg = (key) => defense.players.reduce((s,p)=>s+(p[key]||50),0)/defense.players.length;
   const oPlaymaking = oAvg('playmaking'), dSteal = dAvg('steal');
-  const dPerimD = dAvg('perimeterD'), dInteriorD = dAvg('interiorD');
+  const oHands = oAvg('hands');
+  const dPerimD = (dAvg('perimeterD') + dAvg('defenseIQ')) / 2;
+  const dInteriorD = (dAvg('interiorD') + dAvg('defenseIQ')) / 2;
   const dBlock = (dAvg('block') + dAvg('vertical')) / 2; // rim protection blends block skill with vertical
   const oOffReb = oAvg('offReb'), dDefReb = dAvg('defReb');
+  // Team-wide crash-the-glass tendency nudges the offensive rebound rate.
+  const crash = offense.players.reduce((s,p)=>s+t(p,'tendCrash'),0)/Math.max(1,offense.players.length);
 
   for(let poss=0; poss<numPossessions; poss++){
-    // Turnover check — driven by offense's playmaking vs defense's steal rating
-    const tovChance = Math.max(0.06, Math.min(0.22, 0.14 + (dSteal - oPlaymaking)/280));
+    // Turnover check — offense's playmaking + ball security vs the defense's steal rating.
+    const oBall = (oPlaymaking + oHands) / 2;
+    const tovChance = Math.max(0.06, Math.min(0.22, 0.14 + (dSteal - oBall)/280));
     if(Math.random() < tovChance){
       const ballHandler = weightedPick(offWeights);
       box[ballHandler.id].tov++;
@@ -1444,25 +1497,54 @@ function simulatePossessions(offense, defense, numPossessions){
     let shotsThisPossession = 0;
     while(shotsThisPossession < 2){ // allow one putback max
       shotsThisPossession++;
-      const shooter = weightedPick(offWeights);
-      // Shot type chosen by the shooter's own strongest scoring attribute, not team-wide.
-      const zones = [
-        ['three', shooter.threePoint||50, 3, dPerimD],
-        ['mid', shooter.midrange||50, 2, dPerimD],
-        ['inside', insideScoringRating(shooter), 2, dInteriorD]
-      ];
-      const zoneWeights = zones.map(z=>({z, weight: Math.max(1, z[1])}));
-      const totalZoneWeight = zoneWeights.reduce((s,w)=>s+w.weight,0);
-      let r = Math.random()*totalZoneWeight, chosen = zones[0];
-      for(const w of zoneWeights){ r -= w.weight; if(r<=0){ chosen = w.z; break; } }
-      const [zoneName, shooterSkill, pts, defSkill] = chosen;
-      const makeChance = Math.max(0.25, Math.min(0.68, 0.45 + (shooterSkill - defSkill)/220 + (zoneName==='three'?-0.03: zoneName==='inside'?0.03:0)));
+      // Who has the ball is driven by minutes x Usage tendency.
+      let shooter = weightedPick(offWeights);
+      // A touch doesn't always become a shot — Shot Frequency vs Pass Tendency decides.
+      // A pass swings the ball to a teammate, who then faces the same decision.
+      let swings = 0;
+      while(swings < 2 && offense.players.length > 1){
+        const shootPull = t(shooter,'tendShot');
+        const passPull = t(shooter,'tendPass');
+        if(Math.random() < shootPull/(shootPull + passPull)) break;
+        const others = offense.players.filter(p=>p.id!==shooter.id);
+        shooter = weightedPick(usageWeights(null, others));
+        swings++;
+      }
+      // Shot location comes from the shooter's own frequency tendencies, NOT their skill —
+      // a bad shooter with a high 3PT tendency really will chuck (and miss) them.
+      const mix = shotMix(shooter);
+      const roll = Math.random();
+      let zoneName = roll < mix.three ? 'three' : roll < mix.three + mix.mid ? 'mid' : 'inside';
+      const shooterSkill = zoneName==='three' ? (shooter.threePoint||50)
+        : zoneName==='mid' ? (shooter.midrange||50)
+        : insideScoringRating(shooter);
+      const pts = zoneName==='three' ? 3 : 2;
+      const defSkill = zoneName==='inside' ? dInteriorD : dPerimD;
+      // Shot IQ rewards players who take shots they're actually good at; heavy minutes sap tired legs.
+      const iq = ((shooter.shotIQ==null?50:shooter.shotIQ) - 50) / 400;
+      const fatigue = fatiguePenalty(shooter);
+      const makeChance = Math.max(0.22, Math.min(0.68, 0.45 + (shooterSkill - defSkill)/220 + iq - fatigue
+        + (zoneName==='three'?-0.03: zoneName==='inside'?0.03:0)));
+
+      // Trips to the line — driven by Draw Foul, and much more likely on inside attempts.
+      const foulChance = Math.max(0.02, Math.min(0.20, ((shooter.drawFoul==null?50:shooter.drawFoul)-40)/500 + (zoneName==='inside'?0.07:0.02)));
+      if(Math.random() < foulChance){
+        const ftPct = Math.max(0.4, Math.min(0.95, (shooter.freeThrow==null?70:shooter.freeThrow)/100));
+        const attempts = zoneName==='three' ? 3 : 2;
+        let made = 0;
+        for(let f=0; f<attempts; f++) if(Math.random() < ftPct) made++;
+        box[shooter.id].pts += made;
+        points += made;
+        break;
+      }
 
       if(Math.random() < makeChance){
         box[shooter.id].pts += pts;
         points += pts;
         if(Math.random() < 0.55 && offense.players.length>1){
-          const assistWeights = usageWeights(null, offense.players.filter(p=>p.id!==shooter.id));
+          // Assists go to pass-happy teammates.
+          const others = offense.players.filter(p=>p.id!==shooter.id);
+          const assistWeights = others.map(p=>({player:p, weight: Math.max(1, (t(p,'tendPass')+ (p.playmaking||50))/2 - 20)}));
           if(assistWeights.length){
             const passer = weightedPick(assistWeights);
             box[passer.id].ast++;
@@ -1476,10 +1558,10 @@ function simulatePossessions(offense, defense, numPossessions){
           defense._blocksOpp = defense._blocksOpp || {};
           defense._blocksOpp[blocker.id] = (defense._blocksOpp[blocker.id]||0)+1;
         }
-        // Then contest the rebound
-        const offReboundChance = Math.max(0.18, Math.min(0.42, 0.27 + (oOffReb - dDefReb)/300));
+        // Then contest the rebound — crash-the-glass tendency and hustle push the offense's odds up.
+        const offReboundChance = Math.max(0.14, Math.min(0.46, 0.27 + (oOffReb - dDefReb)/300 + (crash-50)/500));
         if(Math.random() < offReboundChance && shotsThisPossession < 2){
-          const rebounder = weightedPickByAttr(offense.players, 'offReb');
+          const rebounder = weightedPick(offense.players.map(p=>({player:p, weight: Math.max(1, ((p.offReb||50)+t(p,'tendCrash')+(p.hustle==null?50:p.hustle))/3 - 30)})));
           box[rebounder.id].reb++;
           continue; // second-chance shot
         } else {
@@ -1905,16 +1987,28 @@ function executeTrade(teamA, teamB, teamAPlayerIds, teamBPlayerIds){
 const SIM_ATTRS = [
   ['threePoint','3PT'], ['midrange','Midrange'], ['layup','Layup'],
   ['standingDunk','Standing Dunk'], ['drivingDunk','Driving Dunk'], ['interiorPresence','Interior Presence'],
-  ['playmaking','Playmaking'], ['speed','Speed'], ['vertical','Vertical'],
+  ['postScoring','Post Scoring'], ['freeThrow','Free Throw'], ['drawFoul','Draw Foul'],
+  ['playmaking','Playmaking'], ['shotIQ','Shot IQ'], ['hands','Hands'],
+  ['speed','Speed'], ['vertical','Vertical'],
   ['offReb','Off. Rebound'], ['defReb','Def. Rebound'],
-  ['perimeterD','Perimeter D'], ['interiorD','Interior D'], ['steal','Steal'], ['block','Block']
+  ['perimeterD','Perimeter D'], ['interiorD','Interior D'], ['defenseIQ','Defensive IQ'],
+  ['steal','Steal'], ['block','Block'],
+  ['stamina','Stamina'], ['durability','Durability'], ['hustle','Hustle']
 ];
+// 2K-style tendencies: how OFTEN a player does something, independent of how good they are at it.
+const SIM_TENDENCIES = [
+  ['tendUsage','Usage / Touches'], ['tendShot','Shot Frequency'],
+  ['tendThree','3PT Freq'], ['tendMid','Midrange Freq'],
+  ['tendDrive','Drive Freq'], ['tendPost','Post-Up Freq'],
+  ['tendPass','Pass Tendency'], ['tendCrash','Crash Glass']
+];
+
 function renderLeagueRosterTab(){
   const league = leagues[currentLeagueId];
   const team = league.myTeam;
   const roster = simRosters[team] || [];
   return `
-    <p class="form-note" style="margin-bottom:16px;">Add every player yourself with 2K-style attributes — Overall is calculated automatically as their average. Existing players can be edited inline, then hit Save Ratings.</p>
+    <p class="form-note" style="margin-bottom:16px;">Add every player with 2K-style <strong>attributes</strong> (how good they are) and <strong>tendencies</strong> (how often they do it — usage, shot frequency, 3PT/drive/post mix). Overall is a weighted average of the attributes only, so a chucker with a bad jumper still rates low but still takes the shots. Blank tendencies read as a neutral 50. Edit inline, then hit Save Ratings.</p>
     ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
       ${roster.map(p=>{
         const ovr = computeOverall(p);
@@ -1925,18 +2019,31 @@ function renderLeagueRosterTab(){
               ${playerPhotoHtml(p.name,44)}
               <div>
                 <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
-                <div class="form-note" style="margin:0;">${p.position||''}</div>
+                <div class="form-note" style="margin:0;">${p.position||''}${tendencyRead(p)?' · '+tendencyRead(p):''}</div>
               </div>
             </div>
             <span style="font-family:'Anton',sans-serif; font-size:20px; color:var(--hardwood);">${ovr??'--'}</span>
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; width:100%;">
-            ${SIM_ATTRS.map(([key,label])=>`
-              <label style="display:flex; flex-direction:column; gap:2px;">
-                <span class="form-note" style="margin:0; font-size:10px;">${label}</span>
-                <input type="number" min="25" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}" style="width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:5px 6px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:11px;">
-              </label>`).join('')}
-          </div>
+          <details style="width:100%;" open>
+            <summary class="form-note" style="margin:0; cursor:pointer; color:var(--paper-dim);">Attributes</summary>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; width:100%; margin-top:6px;">
+              ${SIM_ATTRS.map(([key,label])=>`
+                <label style="display:flex; flex-direction:column; gap:2px;">
+                  <span class="form-note" style="margin:0; font-size:10px;">${label}</span>
+                  <input type="number" min="25" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}" style="width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:5px 6px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:11px;">
+                </label>`).join('')}
+            </div>
+          </details>
+          <details style="width:100%;">
+            <summary class="form-note" style="margin:0; cursor:pointer; color:var(--hardwood);">Tendencies</summary>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; width:100%; margin-top:6px;">
+              ${SIM_TENDENCIES.map(([key,label])=>`
+                <label style="display:flex; flex-direction:column; gap:2px;">
+                  <span class="form-note" style="margin:0; font-size:10px;">${label}</span>
+                  <input type="number" min="0" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}" style="width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:5px 6px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:11px;">
+                </label>`).join('')}
+            </div>
+          </details>
           <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
             <select data-rate-id="${p.id}" data-rate-field="archetype" style="flex:1; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-size:11px;">
               <option value="" ${!p.archetype?'selected':''}>— Archetype —</option>
@@ -1961,11 +2068,20 @@ function renderLeagueRosterTab(){
           <input type="text" id="sim-roster-position" maxlength="20" placeholder="e.g. PG">
         </div>
       </div>
+      <p class="form-note" style="margin:18px 0 8px; color:var(--paper-dim);">ATTRIBUTES — how good they are</p>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:18px;">
         ${SIM_ATTRS.map(([key,label])=>`
           <div class="field" style="margin-bottom:0;">
             <label>${label}</label>
             <input type="number" id="sim-attr-${key}" min="25" max="99" placeholder="e.g. 80">
+          </div>`).join('')}
+      </div>
+      <p class="form-note" style="margin:18px 0 8px; color:var(--paper-dim);">TENDENCIES — how often they do it (blank = 50)</p>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:18px;">
+        ${SIM_TENDENCIES.map(([key,label])=>`
+          <div class="field" style="margin-bottom:0;">
+            <label>${label}</label>
+            <input type="number" id="sim-attr-${key}" min="0" max="99" placeholder="e.g. 60">
           </div>`).join('')}
       </div>
       <div class="row2">
@@ -1999,8 +2115,9 @@ function handleAddSimRosterPlayer(e){
   const age = parseInt(document.getElementById('sim-roster-age').value,10) || null;
   const archetype = document.getElementById('sim-roster-archetype').value;
   const player = { id:'sim-r-'+Date.now(), name, position, age, archetype };
-  SIM_ATTRS.forEach(([key])=>{
-    const v = parseInt(document.getElementById('sim-attr-'+key).value,10);
+  [...SIM_ATTRS, ...SIM_TENDENCIES].forEach(([key])=>{
+    const el = document.getElementById('sim-attr-'+key);
+    const v = el ? parseInt(el.value,10) : NaN;
     player[key] = isNaN(v) ? null : v;
   });
   addSimRosterPlayer(league.myTeam, player);
@@ -2025,7 +2142,7 @@ function handleSaveRatings(){
     if(!updates[id]) updates[id] = {};
     updates[id][field] = el.value;
   });
-  const attrKeys = SIM_ATTRS.map(([key])=>key);
+  const attrKeys = [...SIM_ATTRS, ...SIM_TENDENCIES].map(([key])=>key);
   list.forEach(p=>{
     const u = updates[p.id];
     if(!u) return;
