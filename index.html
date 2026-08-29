@@ -495,7 +495,13 @@ const localDB = {
     try{
       localStorage.setItem('fairs:'+key, JSON.stringify(value));
       return true;
-    }catch(e){ return false; }
+    }catch(e){
+      console.warn('Storage save failed for key', key, e);
+      if(typeof showToast === 'function'){
+        showToast('⚠️ Storage full — this change was NOT saved. Remove some uploaded photos to free up space.');
+      }
+      return false;
+    }
   }
 };
 
@@ -881,7 +887,7 @@ function handleUploadTeamLogo(){
   const team = document.getElementById('logo-team').value;
   const file = document.getElementById('logo-file').files[0];
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
+  resizeImageToDataUrl(file, 170, 'contain', (dataUrl)=>{
     const all = localDB.get('team-logos') || {};
     all[team] = dataUrl;
     localDB.set('team-logos', all);
@@ -902,7 +908,7 @@ function handleUploadPlayerPhoto(){
   const file = document.getElementById('photo-file').files[0];
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
+  resizeImageToDataUrl(file, 140, 'cover', (dataUrl)=>{
     const all = localDB.get('player-photos') || {};
     all[name.toLowerCase()] = {name, photo:dataUrl};
     localDB.set('player-photos', all);
@@ -946,7 +952,7 @@ function triggerTeamLogoUpload(team){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
+    resizeImageToDataUrl(file, 170, 'contain', (dataUrl)=>{
       const all = localDB.get('team-logos') || {};
       all[team] = dataUrl;
       localDB.set('team-logos', all);
@@ -965,7 +971,7 @@ function triggerPlayerPhotoUpload(name){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
+    resizeImageToDataUrl(file, 140, 'cover', (dataUrl)=>{
       const all = localDB.get('player-photos') || {};
       all[name.toLowerCase()] = {name, photo:dataUrl};
       localDB.set('player-photos', all);
@@ -2467,15 +2473,53 @@ function handleDeleteLeader(catKey, id){
 }
 
 /* ---------------- Render: Media (team logos / player photos) ---------------- */
+function estimateStorageUsage(){
+  let bytes = 0;
+  for(let i=0; i<localStorage.length; i++){
+    const key = localStorage.key(i);
+    if(key && key.startsWith('fairs:')) bytes += (localStorage.getItem(key)||'').length;
+  }
+  return bytes;
+}
+function handleClearAllTeamLogos(){
+  if(!confirm('Remove every uploaded team logo? This can\'t be undone.')) return;
+  localDB.set('team-logos', {});
+  teamLogos = {};
+  showToast('All team logos cleared');
+  render();
+}
+function handleClearAllPlayerPhotos(){
+  if(!confirm('Remove every uploaded player photo? This can\'t be undone.')) return;
+  localDB.set('player-photos', {});
+  playerPhotos = {};
+  showToast('All player photos cleared');
+  render();
+}
 function renderMedia(){
   const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
   const logoKeys = Object.keys(teamLogos);
   const photoEntries = Object.entries(playerPhotos);
+  const usageKB = (estimateStorageUsage()/1024).toFixed(0);
+  const usagePct = Math.min(100, Math.round((estimateStorageUsage()/(5*1024*1024))*100));
 
   return `
     <div style="padding-top:40px; max-width:720px; margin:0 auto;">
       <p class="eyebrow">Media</p>
-      <h2 class="section-title" style="margin-bottom:24px;">Team Logos &amp; Player Photos</h2>
+      <h2 class="section-title" style="margin-bottom:16px;">Team Logos &amp; Player Photos</h2>
+
+      <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:8px; margin-bottom:24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="form-note" style="color:var(--paper); margin:0;">Storage used: ~${usageKB} KB (${usagePct}% of a typical 5MB browser limit)</span>
+        </div>
+        <div style="background:var(--ink); border-radius:4px; height:8px; overflow:hidden;">
+          <div style="width:${usagePct}%; height:100%; background:${usagePct>80?'var(--buzzer)':'var(--hardwood)'};"></div>
+        </div>
+        ${usagePct>70 ? `<p class="form-note" style="margin:6px 0 0; color:var(--buzzer);">Getting close to the limit — if new photos or players stop saving, clear some photos below.</p>` : ''}
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button class="ghost-btn" style="padding:6px 14px; font-size:11px;" onclick="handleClearAllTeamLogos()">Clear All Logos</button>
+          <button class="ghost-btn" style="padding:6px 14px; font-size:11px;" onclick="handleClearAllPlayerPhotos()">Clear All Player Photos</button>
+        </div>
+      </div>
 
       <h3 class="section-title" style="font-size:20px; margin-bottom:14px;">Upload a Team Logo</h3>
       <div class="row2">
