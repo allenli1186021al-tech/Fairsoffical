@@ -824,6 +824,62 @@ function removeSimRosterPlayer(team, id){
   simRosters = all;
 }
 
+/* ---- Import Find Your Team rosters into the simulator ---- */
+function normalizePlayerName(name){ return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function mergeFindYourTeamInto(all, team){
+  const source = (localDB.get('rosters') || {})[team] || [];
+  const list = all[team] || [];
+  const seen = new Set(list.map(p=>normalizePlayerName(p.name)));
+  let added = 0, skipped = 0;
+  source.forEach((p,i)=>{
+    const key = normalizePlayerName(p.name);
+    if(!key || seen.has(key)){ skipped++; return; }
+    seen.add(key);
+    list.push({
+      id:'imp-'+team+'-'+Date.now()+'-'+i,
+      name:p.name, position:p.position||'', number:p.number??null,
+      overall:null, archetype:'', age:null
+    });
+    added++;
+  });
+  all[team] = list;
+  return { added, skipped, total: source.length };
+}
+function importFromFindYourTeam(team){
+  const all = localDB.get(simRostersKey()) || {};
+  const res = mergeFindYourTeamInto(all, team);
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+  return res;
+}
+function importAllFromFindYourTeam(){
+  const all = localDB.get(simRostersKey()) || {};
+  let added = 0, skipped = 0, teams = 0;
+  Object.keys(localDB.get('rosters') || {}).forEach(team=>{
+    if(!TEAM_COLORS[team]) return;
+    const res = mergeFindYourTeamInto(all, team);
+    if(res.added) teams++;
+    added += res.added; skipped += res.skipped;
+  });
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+  return { added, skipped, teams };
+}
+function handleImportMyTeamFromFYT(){
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const res = importFromFindYourTeam(team);
+  if(!res.total){ showToast('No Find Your Team players saved for '+team); return; }
+  showToast(`Imported ${res.added} player${res.added===1?'':'s'} to ${team}${res.skipped?' · '+res.skipped+' already on the roster':''}`);
+  render();
+}
+function handleImportAllFromFYT(){
+  const res = importAllFromFindYourTeam();
+  if(!res.added && !res.skipped){ showToast('No Find Your Team players saved yet'); return; }
+  showToast(`Imported ${res.added} player${res.added===1?'':'s'} across ${res.teams} team${res.teams===1?'':'s'}${res.skipped?' · '+res.skipped+' already on rosters':''}`);
+  render();
+}
+
 /* ---------------- Leagues: create/join/list, schedule, gameplan, trades ---------------- */
 function loadLeagues(){ leagues = localDB.get('leagues') || {}; }
 function generateLeagueCode(){
@@ -2161,6 +2217,11 @@ function renderLeagueRosterTab(){
   const roster = simRosters[team] || [];
   return `
     <p class="form-note" style="margin-bottom:16px;">Add every player with 2K-style <strong>attributes</strong> (how good they are) and <strong>tendencies</strong> (how often they do it — usage, shot frequency, 3PT/drive/post mix). Overall is a weighted average of the attributes only, so a chucker with a bad jumper still rates low but still takes the shots. Blank tendencies read as a neutral 50. Edit inline, then hit Save Ratings.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;">
+      <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleImportMyTeamFromFYT()">Import ${team} from Find Your Team</button>
+      <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleImportAllFromFYT()">Import all teams from Find Your Team</button>
+    </div>
+    <p class="form-note" style="margin:-10px 0 16px;">Importing merges — players already on the simulator roster are skipped, and imported players come in unrated so you can fill in attributes below.</p>
     ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
       ${roster.map(p=>{
         const ovr = computeOverall(p);
