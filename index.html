@@ -362,6 +362,7 @@
       <button data-v="draft" class="display">Draft</button>
       <button data-v="simulator" class="display">Simulator</button>
       <button data-v="leaders" class="display">Stat Leaders</button>
+      <button data-v="media" class="display">Photos</button>
       <button data-v="standings" class="display">Standings</button>
     </nav>
   </div>
@@ -497,6 +498,112 @@ const localDB = {
     }catch(e){ return false; }
   }
 };
+
+/* ---------------- Storage: images (IndexedDB — far bigger than localStorage's ~5MB) ---------------- */
+const imageDB = {
+  _db: null,
+  open(){
+    if(this._db) return Promise.resolve(this._db);
+    return new Promise((resolve, reject)=>{
+      let req;
+      try{ req = indexedDB.open('fairs-images', 1); }
+      catch(e){ reject(e); return; }
+      req.onupgradeneeded = ()=>{
+        const db = req.result;
+        if(!db.objectStoreNames.contains('logos')) db.createObjectStore('logos');
+        if(!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+      };
+      req.onsuccess = ()=>{ this._db = req.result; resolve(req.result); };
+      req.onerror = ()=> reject(req.error);
+    });
+  },
+  async _tx(store, mode){
+    const db = await this.open();
+    return db.transaction(store, mode).objectStore(store);
+  },
+  async getAll(store){
+    try{
+      const os = await this._tx(store, 'readonly');
+      return await new Promise((resolve, reject)=>{
+        const out = {};
+        const req = os.openCursor();
+        req.onsuccess = ()=>{
+          const cur = req.result;
+          if(!cur){ resolve(out); return; }
+          out[cur.key] = cur.value;
+          cur.continue();
+        };
+        req.onerror = ()=> reject(req.error);
+      });
+    }catch(e){ return {}; }
+  },
+  async put(store, key, value){
+    try{
+      const os = await this._tx(store, 'readwrite');
+      return await new Promise((resolve, reject)=>{
+        const req = os.put(value, key);
+        req.onsuccess = ()=> resolve(true);
+        req.onerror = ()=> reject(req.error);
+      });
+    }catch(e){ showToast('Could not save that image'); return false; }
+  },
+  async del(store, key){
+    try{
+      const os = await this._tx(store, 'readwrite');
+      return await new Promise((resolve)=>{ const req = os.delete(key); req.onsuccess=()=>resolve(true); req.onerror=()=>resolve(false); });
+    }catch(e){ return false; }
+  },
+  async clear(store){
+    try{
+      const os = await this._tx(store, 'readwrite');
+      return await new Promise((resolve)=>{ const req = os.clear(); req.onsuccess=()=>resolve(true); req.onerror=()=>resolve(false); });
+    }catch(e){ return false; }
+  }
+};
+
+// Object URLs handed to <img src>. Tracked per key so replacing an image frees the old one.
+const imageUrlCache = { logos:{}, photos:{} };
+function imageUrlFor(store, key, blob){
+  const prev = imageUrlCache[store][key];
+  if(prev){ try{ URL.revokeObjectURL(prev); }catch(e){} }
+  const url = URL.createObjectURL(blob);
+  imageUrlCache[store][key] = url;
+  return url;
+}
+function releaseImageUrl(store, key){
+  const prev = imageUrlCache[store][key];
+  if(prev){ try{ URL.revokeObjectURL(prev); }catch(e){} delete imageUrlCache[store][key]; }
+}
+function dataUrlToBlob(dataUrl){
+  try{
+    const [head, body] = String(dataUrl).split(',');
+    const mime = (head.match(/data:([^;]+)/)||[])[1] || 'image/png';
+    const bin = atob(body);
+    const arr = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], {type:mime});
+  }catch(e){ return null; }
+}
+// One-time move of anything already saved as base64 in localStorage into IndexedDB,
+// then clears it out of localStorage so the old 5MB budget is freed up.
+async function migrateImagesToIndexedDB(){
+  if(localStorage.getItem('fairs:img-migrated-v1')) return;
+  try{
+    const oldLogos = localDB.get('team-logos') || {};
+    for(const [team, dataUrl] of Object.entries(oldLogos)){
+      const blob = dataUrlToBlob(dataUrl);
+      if(blob) await imageDB.put('logos', team, blob);
+    }
+    const oldPhotos = localDB.get('player-photos') || {};
+    for(const [key, entry] of Object.entries(oldPhotos)){
+      const blob = dataUrlToBlob(entry && entry.photo);
+      if(blob) await imageDB.put('photos', key, {name:(entry&&entry.name)||key, blob});
+    }
+    localStorage.removeItem('fairs:team-logos');
+    localStorage.removeItem('fairs:player-photos');
+    localStorage.setItem('fairs:img-migrated-v1', '1');
+  }catch(e){ /* leave localStorage copies alone if anything went wrong */ }
+}
 
 /* ---------------- Storage: scores ---------------- */
 function loadScores(){
@@ -667,8 +774,22 @@ function deleteDraftPick(id){
 }
 
 /* ---------------- Storage: uploaded team logos & player photos ---------------- */
-function loadTeamLogos(){ teamLogos = localDB.get('team-logos') || {}; }
-function loadPlayerPhotos(){ playerPhotos = localDB.get('player-photos') || {}; }
+async function loadTeamLogos(){
+  const stored = await imageDB.getAll('logos');
+  const out = {};
+  for(const [team, blob] of Object.entries(stored)){
+    if(blob) out[team] = imageUrlFor('logos', team, blob);
+  }
+  teamLogos = out;
+}
+async function loadPlayerPhotos(){
+  const stored = await imageDB.getAll('photos');
+  const out = {};
+  for(const [key, entry] of Object.entries(stored)){
+    if(entry && entry.blob) out[key] = { name: entry.name || key, photo: imageUrlFor('photos', key, entry.blob) };
+  }
+  playerPhotos = out;
+}
 function loadRosters(){ rosters = localDB.get('rosters') || {}; }
 function addRosterPlayer(team, entry){
   const all = localDB.get('rosters') || {};
@@ -701,6 +822,62 @@ function removeSimRosterPlayer(team, id){
   all[team] = (all[team]||[]).filter(p=>p.id!==id);
   localDB.set(simRostersKey(), all);
   simRosters = all;
+}
+
+/* ---- Import Find Your Team rosters into the simulator ---- */
+function normalizePlayerName(name){ return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function mergeFindYourTeamInto(all, team){
+  const source = (localDB.get('rosters') || {})[team] || [];
+  const list = all[team] || [];
+  const seen = new Set(list.map(p=>normalizePlayerName(p.name)));
+  let added = 0, skipped = 0;
+  source.forEach((p,i)=>{
+    const key = normalizePlayerName(p.name);
+    if(!key || seen.has(key)){ skipped++; return; }
+    seen.add(key);
+    list.push({
+      id:'imp-'+team+'-'+Date.now()+'-'+i,
+      name:p.name, position:p.position||'', number:p.number??null,
+      overall:null, archetype:'', age:null
+    });
+    added++;
+  });
+  all[team] = list;
+  return { added, skipped, total: source.length };
+}
+function importFromFindYourTeam(team){
+  const all = localDB.get(simRostersKey()) || {};
+  const res = mergeFindYourTeamInto(all, team);
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+  return res;
+}
+function importAllFromFindYourTeam(){
+  const all = localDB.get(simRostersKey()) || {};
+  let added = 0, skipped = 0, teams = 0;
+  Object.keys(localDB.get('rosters') || {}).forEach(team=>{
+    if(!TEAM_COLORS[team]) return;
+    const res = mergeFindYourTeamInto(all, team);
+    if(res.added) teams++;
+    added += res.added; skipped += res.skipped;
+  });
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+  return { added, skipped, teams };
+}
+function handleImportMyTeamFromFYT(){
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const res = importFromFindYourTeam(team);
+  if(!res.total){ showToast('No Find Your Team players saved for '+team); return; }
+  showToast(`Imported ${res.added} player${res.added===1?'':'s'} to ${team}${res.skipped?' · '+res.skipped+' already on the roster':''}`);
+  render();
+}
+function handleImportAllFromFYT(){
+  const res = importAllFromFindYourTeam();
+  if(!res.added && !res.skipped){ showToast('No Find Your Team players saved yet'); return; }
+  showToast(`Imported ${res.added} player${res.added===1?'':'s'} across ${res.teams} team${res.teams===1?'':'s'}${res.skipped?' · '+res.skipped+' already on rosters':''}`);
+  render();
 }
 
 /* ---------------- Leagues: create/join/list, schedule, gameplan, trades ---------------- */
@@ -742,7 +919,6 @@ const REAL_ROSTERS = {
     ['Thomas Sorber','FC'],['Nikola Topic','PG'],['Cason Wallace','G'],['Aaron Wiggins','F'],['Jalen Williams','G'],
     ['Jaylin Williams','C'],['Kenrich Williams','SF'],['Chris Youngblood','SG']]
 };
-function normalizePlayerName(n){ return (n||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
 function seedLeagueRosters(leagueId){
   // Real rosters (name+position) where we've pulled them from RealGM; blank slate for every other team.
   const rostersForLeague = {};
@@ -754,18 +930,6 @@ function seedLeagueRosters(leagueId){
     } else {
       rostersForLeague[team] = [];
     }
-    // Pull in anything saved for this team in Find Your Team, skipping duplicate names.
-    const mine = (localDB.get('rosters') || {})[team] || [];
-    const seen = new Set(rostersForLeague[team].map(p=>normalizePlayerName(p.name)));
-    mine.forEach((p,i)=>{
-      const key = normalizePlayerName(p.name);
-      if(!p.name || seen.has(key)) return;
-      seen.add(key);
-      rostersForLeague[team].push({
-        id:'imp-'+team+'-'+i, name:p.name, position:p.position||'', number:p.number||'',
-        overall:null, archetype:'', age:null
-      });
-    });
   });
   localDB.set('sim-rosters:'+leagueId, rostersForLeague);
 }
@@ -826,6 +990,46 @@ function saveLeagueSchedule(leagueId, schedule){ localDB.set('league-schedule:'+
 function loadLeagueGameplan(leagueId){ return localDB.get('league-gameplan:'+leagueId) || {}; }
 function saveLeagueGameplan(leagueId, gameplan){ localDB.set('league-gameplan:'+leagueId, gameplan); }
 
+// Same resizing as resizeImageToDataUrl, but hands back a compressed Blob instead of a
+// base64 string — roughly 5-8x smaller on disk, and what IndexedDB stores for logos/photos.
+function resizeImageToBlob(file, size, mode, callback){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      let canvas, ctx;
+      if(mode === 'natural'){
+        const scale = Math.min(1, size / Math.max(img.width, img.height));
+        const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+        canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+      } else {
+        canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,size,size);
+        const scale = (mode === 'contain')
+          ? Math.min(size/img.width, size/img.height)
+          : Math.max(size/img.width, size/img.height);
+        const w = img.width*scale, h = img.height*scale;
+        ctx.drawImage(img, (size-w)/2, (size-h)/2, w, h);
+      }
+      canvas.toBlob(function(blob){
+        if(blob){ callback(blob); return; }
+        // Older browsers without WebP encoding fall back to PNG.
+        canvas.toBlob(function(png){
+          if(png) callback(png); else showToast('Could not process that image');
+        }, 'image/png');
+      }, 'image/webp', 0.85);
+    };
+    img.onerror = function(){ showToast('Could not read that image'); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function(){ showToast('Could not read that file'); };
+  reader.readAsDataURL(file);
+}
 function resizeImageToDataUrl(file, size, mode, callback){
   const reader = new FileReader();
   reader.onload = function(e){
@@ -893,20 +1097,17 @@ function handleUploadTeamLogo(){
   const team = document.getElementById('logo-team').value;
   const file = document.getElementById('logo-file').files[0];
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
-    const all = localDB.get('team-logos') || {};
-    all[team] = dataUrl;
-    localDB.set('team-logos', all);
-    teamLogos = all;
+  resizeImageToBlob(file, 256, 'contain', async (blob)=>{
+    await imageDB.put('logos', team, blob);
+    teamLogos[team] = imageUrlFor('logos', team, blob);
     showToast('Logo uploaded');
     render();
   });
 }
-function handleRemoveTeamLogo(team){
-  const all = localDB.get('team-logos') || {};
-  delete all[team];
-  localDB.set('team-logos', all);
-  teamLogos = all;
+async function handleRemoveTeamLogo(team){
+  await imageDB.del('logos', team);
+  releaseImageUrl('logos', team);
+  delete teamLogos[team];
   render();
 }
 function handleUploadPlayerPhoto(){
@@ -914,20 +1115,18 @@ function handleUploadPlayerPhoto(){
   const file = document.getElementById('photo-file').files[0];
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
-    const all = localDB.get('player-photos') || {};
-    all[name.toLowerCase()] = {name, photo:dataUrl};
-    localDB.set('player-photos', all);
-    playerPhotos = all;
+  resizeImageToBlob(file, 512, 'cover', async (blob)=>{
+    const key = name.toLowerCase();
+    await imageDB.put('photos', key, {name, blob});
+    playerPhotos[key] = {name, photo: imageUrlFor('photos', key, blob)};
     showToast('Photo uploaded');
     render();
   });
 }
-function handleRemovePlayerPhoto(nameKey){
-  const all = localDB.get('player-photos') || {};
-  delete all[nameKey];
-  localDB.set('player-photos', all);
-  playerPhotos = all;
+async function handleRemovePlayerPhoto(nameKey){
+  await imageDB.del('photos', nameKey);
+  releaseImageUrl('photos', nameKey);
+  delete playerPhotos[nameKey];
   render();
 }
 
@@ -958,11 +1157,9 @@ function triggerTeamLogoUpload(team){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
-      const all = localDB.get('team-logos') || {};
-      all[team] = dataUrl;
-      localDB.set('team-logos', all);
-      teamLogos = all;
+    resizeImageToBlob(file, 256, 'contain', async (blob)=>{
+      await imageDB.put('logos', team, blob);
+      teamLogos[team] = imageUrlFor('logos', team, blob);
       showToast(TEAM_NAMES[team]+' logo updated');
       render();
     });
@@ -977,11 +1174,10 @@ function triggerPlayerPhotoUpload(name){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
-      const all = localDB.get('player-photos') || {};
-      all[name.toLowerCase()] = {name, photo:dataUrl};
-      localDB.set('player-photos', all);
-      playerPhotos = all;
+    resizeImageToBlob(file, 512, 'cover', async (blob)=>{
+      const key = name.toLowerCase();
+      await imageDB.put('photos', key, {name, blob});
+      playerPhotos[key] = {name, photo: imageUrlFor('photos', key, blob)};
       showToast(name+"'s photo updated");
       render();
     });
@@ -2021,6 +2217,11 @@ function renderLeagueRosterTab(){
   const roster = simRosters[team] || [];
   return `
     <p class="form-note" style="margin-bottom:16px;">Add every player with 2K-style <strong>attributes</strong> (how good they are) and <strong>tendencies</strong> (how often they do it — usage, shot frequency, 3PT/drive/post mix). Overall is a weighted average of the attributes only, so a chucker with a bad jumper still rates low but still takes the shots. Blank tendencies read as a neutral 50. Edit inline, then hit Save Ratings.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;">
+      <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleImportMyTeamFromFYT()">Import ${team} from Find Your Team</button>
+      <button class="ghost-btn" style="padding:6px 12px; font-size:11px;" onclick="handleImportAllFromFYT()">Import all teams from Find Your Team</button>
+    </div>
+    <p class="form-note" style="margin:-10px 0 16px;">Importing merges — players already on the simulator roster are skipped, and imported players come in unrated so you can fill in attributes below.</p>
     ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
       ${roster.map(p=>{
         const ovr = computeOverall(p);
@@ -2478,6 +2679,64 @@ function handleDeleteLeader(catKey, id){
   render();
 }
 
+/* ---------------- Media: real storage usage (IndexedDB quota, not the old 5MB guess) ---------------- */
+let storageEstimate = null;
+async function refreshStorageEstimate(){
+  try{
+    if(!navigator.storage || !navigator.storage.estimate) return;
+    const est = await navigator.storage.estimate();
+    storageEstimate = { usage: est.usage || 0, quota: est.quota || 0 };
+    const el = document.getElementById('storage-meter');
+    if(el) el.outerHTML = storageMeterHtml();
+  }catch(e){}
+}
+function fmtBytes(n){
+  if(n >= 1024*1024*1024) return (n/1024/1024/1024).toFixed(2)+' GB';
+  if(n >= 1024*1024) return (n/1024/1024).toFixed(1)+' MB';
+  return Math.round(n/1024)+' KB';
+}
+function storageMeterHtml(){
+  if(!storageEstimate){
+    return `<div id="storage-meter" class="form-note">Checking storage usage…</div>`;
+  }
+  const {usage, quota} = storageEstimate;
+  const pct = quota ? Math.min(100, (usage/quota)*100) : 0;
+  const tight = pct > 85;
+  return `<div id="storage-meter">
+    <div style="font-family:'Anton',sans-serif; font-size:13px; color:var(--paper); text-transform:uppercase; letter-spacing:.5px;">
+      Storage used: ${fmtBytes(usage)}${quota ? ` of ${fmtBytes(quota)} available (${pct < 1 ? '<1' : Math.round(pct)}%)` : ''}
+    </div>
+    <div style="height:8px; border-radius:4px; background:rgba(255,255,255,.12); margin:10px 0 8px; overflow:hidden;">
+      <div style="height:100%; width:${Math.max(pct, 1)}%; background:${tight ? 'var(--flame, #e0533d)' : 'var(--hardwood, #c87b46)'};"></div>
+    </div>
+    <p class="form-note" style="margin:0;">${tight
+      ? 'Getting close to the limit — clear some photos below.'
+      : 'Photos and logos are stored in this browser\'s database, which holds far more than the old 5MB text limit.'}</p>
+    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+      <button class="ghost-btn" style="padding:6px 12px; font-size:10px;" onclick="handleClearAllLogos()">Clear all logos</button>
+      <button class="ghost-btn" style="padding:6px 12px; font-size:10px;" onclick="handleClearAllPlayerPhotos()">Clear all player photos</button>
+    </div>
+  </div>`;
+}
+async function handleClearAllLogos(){
+  if(!confirm('Remove every uploaded team logo?')) return;
+  await imageDB.clear('logos');
+  Object.keys(teamLogos).forEach(k=>releaseImageUrl('logos', k));
+  teamLogos = {};
+  showToast('All logos cleared');
+  render();
+  refreshStorageEstimate();
+}
+async function handleClearAllPlayerPhotos(){
+  if(!confirm('Remove every uploaded player photo?')) return;
+  await imageDB.clear('photos');
+  Object.keys(playerPhotos).forEach(k=>releaseImageUrl('photos', k));
+  playerPhotos = {};
+  showToast('All player photos cleared');
+  render();
+  refreshStorageEstimate();
+}
+
 /* ---------------- Render: Media (team logos / player photos) ---------------- */
 function renderMedia(){
   const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
@@ -2488,6 +2747,10 @@ function renderMedia(){
     <div style="padding-top:40px; max-width:720px; margin:0 auto;">
       <p class="eyebrow">Media</p>
       <h2 class="section-title" style="margin-bottom:24px;">Team Logos &amp; Player Photos</h2>
+
+      <div style="border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:16px 18px; margin-bottom:28px;">
+        ${storageMeterHtml()}
+      </div>
 
       <h3 class="section-title" style="font-size:20px; margin-bottom:14px;">Upload a Team Logo</h3>
       <div class="row2">
@@ -2855,7 +3118,7 @@ function render(){
   else if(currentView==='simulator-choose') app.innerHTML = renderSimulatorChoose();
   else if(currentView==='league-hub') app.innerHTML = renderLeagueHub();
   else if(currentView==='leaders') app.innerHTML = renderLeaders();
-  else if(currentView==='media') app.innerHTML = renderMedia();
+  else if(currentView==='media'){ app.innerHTML = renderMedia(); refreshStorageEstimate(); }
   else if(currentView==='teams') app.innerHTML = renderTeamHubPage();
   else if(currentView==='team') app.innerHTML = renderTeamPage(currentTeam);
 
@@ -2883,12 +3146,13 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
 });
 
 /* ---------------- Init ---------------- */
-(function init(){
+(async function init(){
   loadScores();
   loadMoves();
   loadTrades();
-  loadTeamLogos();
-  loadPlayerPhotos();
+  await migrateImagesToIndexedDB();
+  await loadTeamLogos();
+  await loadPlayerPhotos();
   loadRosters();
   loadSimRosters();
   loadLeagues();
