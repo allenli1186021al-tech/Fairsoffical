@@ -362,7 +362,6 @@
       <button data-v="draft" class="display">Draft</button>
       <button data-v="simulator" class="display">Simulator</button>
       <button data-v="leaders" class="display">Stat Leaders</button>
-      <button data-v="media" class="display">Photos</button>
       <button data-v="standings" class="display">Standings</button>
     </nav>
   </div>
@@ -495,13 +494,7 @@ const localDB = {
     try{
       localStorage.setItem('fairs:'+key, JSON.stringify(value));
       return true;
-    }catch(e){
-      console.warn('Storage save failed for key', key, e);
-      if(typeof showToast === 'function'){
-        showToast('⚠️ Storage full — this change was NOT saved. Remove some uploaded photos to free up space.');
-      }
-      return false;
-    }
+    }catch(e){ return false; }
   }
 };
 
@@ -749,6 +742,7 @@ const REAL_ROSTERS = {
     ['Thomas Sorber','FC'],['Nikola Topic','PG'],['Cason Wallace','G'],['Aaron Wiggins','F'],['Jalen Williams','G'],
     ['Jaylin Williams','C'],['Kenrich Williams','SF'],['Chris Youngblood','SG']]
 };
+function normalizePlayerName(n){ return (n||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
 function seedLeagueRosters(leagueId){
   // Real rosters (name+position) where we've pulled them from RealGM; blank slate for every other team.
   const rostersForLeague = {};
@@ -760,6 +754,18 @@ function seedLeagueRosters(leagueId){
     } else {
       rostersForLeague[team] = [];
     }
+    // Pull in anything saved for this team in Find Your Team, skipping duplicate names.
+    const mine = (localDB.get('rosters') || {})[team] || [];
+    const seen = new Set(rostersForLeague[team].map(p=>normalizePlayerName(p.name)));
+    mine.forEach((p,i)=>{
+      const key = normalizePlayerName(p.name);
+      if(!p.name || seen.has(key)) return;
+      seen.add(key);
+      rostersForLeague[team].push({
+        id:'imp-'+team+'-'+i, name:p.name, position:p.position||'', number:p.number||'',
+        overall:null, archetype:'', age:null
+      });
+    });
   });
   localDB.set('sim-rosters:'+leagueId, rostersForLeague);
 }
@@ -817,8 +823,26 @@ function deleteLeague(id){
 }
 function loadLeagueSchedule(leagueId){ return localDB.get('league-schedule:'+leagueId) || []; }
 function saveLeagueSchedule(leagueId, schedule){ localDB.set('league-schedule:'+leagueId, schedule); }
-function loadLeagueGameplan(leagueId){ return localDB.get('league-gameplan:'+leagueId) || {}; }
+const GP_SLOTS = ['PG','SG','SF','PF','C'];
+// Gameplan record shape: { minutes:{id:min}, starters:{PG..C}, sixthMan:id, bench:[ids], dnp:[ids] }
+// Legacy records were a flat { id: minutes } map — migrated on read.
+function loadLeagueGameplan(leagueId){
+  const raw = localDB.get('league-gameplan:'+leagueId) || {};
+  if(raw && (raw.minutes || raw.starters || raw.bench)){
+    return {
+      minutes: raw.minutes || {},
+      starters: raw.starters || {},
+      sixthMan: raw.sixthMan || null,
+      bench: raw.bench || [],
+      dnp: raw.dnp || []
+    };
+  }
+  const minutes = {};
+  Object.keys(raw).forEach(k=>{ const v = parseInt(raw[k],10); if(v) minutes[k]=v; });
+  return { minutes, starters:{}, sixthMan:null, bench:[], dnp:[] };
+}
 function saveLeagueGameplan(leagueId, gameplan){ localDB.set('league-gameplan:'+leagueId, gameplan); }
+function gameplanMinutes(leagueId){ return loadLeagueGameplan(leagueId).minutes || {}; }
 
 function resizeImageToDataUrl(file, size, mode, callback){
   const reader = new FileReader();
@@ -887,7 +911,7 @@ function handleUploadTeamLogo(){
   const team = document.getElementById('logo-team').value;
   const file = document.getElementById('logo-file').files[0];
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 170, 'contain', (dataUrl)=>{
+  resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
     const all = localDB.get('team-logos') || {};
     all[team] = dataUrl;
     localDB.set('team-logos', all);
@@ -908,7 +932,7 @@ function handleUploadPlayerPhoto(){
   const file = document.getElementById('photo-file').files[0];
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
-  resizeImageToDataUrl(file, 140, 'cover', (dataUrl)=>{
+  resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
     const all = localDB.get('player-photos') || {};
     all[name.toLowerCase()] = {name, photo:dataUrl};
     localDB.set('player-photos', all);
@@ -952,7 +976,7 @@ function triggerTeamLogoUpload(team){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 170, 'contain', (dataUrl)=>{
+    resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
       const all = localDB.get('team-logos') || {};
       all[team] = dataUrl;
       localDB.set('team-logos', all);
@@ -971,7 +995,7 @@ function triggerPlayerPhotoUpload(name){
   input.onchange = function(){
     const file = input.files[0];
     if(!file) return;
-    resizeImageToDataUrl(file, 140, 'cover', (dataUrl)=>{
+    resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
       const all = localDB.get('player-photos') || {};
       all[name.toLowerCase()] = {name, photo:dataUrl};
       localDB.set('player-photos', all);
@@ -1377,8 +1401,8 @@ function computeOverall(p){
 }
 // Heavy minutes wear down low-stamina players — a small, late-game-ish efficiency tax.
 function fatiguePenalty(p){
-  const gameplan = currentLeagueId ? loadLeagueGameplan(currentLeagueId) : {};
-  const mins = parseInt(gameplan[p.id],10);
+  const minutes = currentLeagueId ? gameplanMinutes(currentLeagueId) : {};
+  const mins = parseInt(minutes[p.id],10);
   if(!mins || mins <= 30) return 0;
   const stamina = p.stamina==null ? 50 : p.stamina;
   return Math.max(0, Math.min(0.06, (mins-30)/100 * (75-stamina)/100));
@@ -1440,11 +1464,17 @@ function teamPower(team){
 // Weighted usage share per player — assigned minutes (if a gameplan exists) multiplied by the
 // player's Usage tendency, so a bench guy set to "high usage" really does hunt his own shot.
 function usageWeights(team, players){
-  const gameplan = currentLeagueId ? loadLeagueGameplan(currentLeagueId) : {};
-  const hasMinutes = players.some(p=>gameplan[p.id]);
-  return players.map(p=>{
-    const base = hasMinutes ? (gameplan[p.id]||1) : Math.max(1, (p.overall||computeOverall(p)||60)-50);
-    return { player: p, weight: Math.max(0.5, base * (0.5 + t(p,'tendUsage')/100)) };
+  const gp = currentLeagueId ? loadLeagueGameplan(currentLeagueId) : { minutes:{}, starters:{}, dnp:[] };
+  const minutes = gp.minutes || {};
+  const dnp = gp.dnp || [];
+  const starterIds = Object.values(gp.starters || {}).filter(Boolean);
+  const hasMinutes = players.some(p=>minutes[p.id]);
+  const eligible = players.filter(p=>!dnp.includes(p.id));
+  const pool = eligible.length ? eligible : players;
+  return pool.map(p=>{
+    const base = hasMinutes ? (minutes[p.id]||1) : Math.max(1, (p.overall||computeOverall(p)||60)-50);
+    const roleMult = starterIds.includes(p.id) ? 1.1 : (starterIds.length && p.id===gp.sixthMan ? 1.0 : (starterIds.length ? 0.92 : 1));
+    return { player: p, weight: Math.max(0.5, base * (0.5 + t(p,'tendUsage')/100) * roleMult) };
   });
 }
 function weightedPick(weighted){
@@ -1695,7 +1725,7 @@ function promptJoinLeague(){
   render();
 }
 function openLeague(leagueId){
-  currentLeagueId = leagueId;
+  currentLeagueId = leagueId; gpDraft = null;
   loadSimRosters();
   leagueTab = 'season';
   currentView = 'league-hub';
@@ -1841,34 +1871,233 @@ function handleSimulateAllGames(){
 }
 
 /* ---- Gameplan tab ---- */
-function renderLeagueGameplan(){
+let gpDraft = null;
+const GP_DEFAULT_STARTER_MIN = [34,32,32,30,28];
+function gpRoster(){
   const league = leagues[currentLeagueId];
-  const roster = simRosters[league.myTeam] || [];
-  const gameplan = loadLeagueGameplan(currentLeagueId);
-  const totalMinutes = roster.reduce((sum,p)=> sum + (parseInt(gameplan[p.id],10)||0), 0);
+  return simRosters[league.myTeam] || [];
+}
+// Makes sure every rostered player sits in exactly one bucket and no stale ids linger.
+function normalizeGameplan(roster, gp){
+  const ids = roster.map(p=>p.id);
+  const used = new Set();
+  const starters = {};
+  GP_SLOTS.forEach(slot=>{
+    const id = gp.starters ? gp.starters[slot] : null;
+    if(id && ids.includes(id) && !used.has(id)){ starters[slot] = id; used.add(id); }
+    else starters[slot] = null;
+  });
+  let sixth = gp.sixthMan && ids.includes(gp.sixthMan) && !used.has(gp.sixthMan) ? gp.sixthMan : null;
+  if(sixth) used.add(sixth);
+  const dnp = (gp.dnp||[]).filter(id=>ids.includes(id) && !used.has(id));
+  dnp.forEach(id=>used.add(id));
+  const bench = (gp.bench||[]).filter(id=>ids.includes(id) && !used.has(id));
+  bench.forEach(id=>used.add(id));
+  ids.forEach(id=>{ if(!used.has(id)){ bench.push(id); used.add(id); } });
+  const minutes = {};
+  Object.keys(gp.minutes||{}).forEach(id=>{ if(ids.includes(id)) minutes[id] = gp.minutes[id]; });
+  dnp.forEach(id=>{ minutes[id] = 0; });
+  return { minutes, starters, sixthMan: sixth, bench, dnp };
+}
+function getGpDraft(){
+  const roster = gpRoster();
+  if(!gpDraft) gpDraft = normalizeGameplan(roster, loadLeagueGameplan(currentLeagueId));
+  else gpDraft = normalizeGameplan(roster, gpDraft);
+  return gpDraft;
+}
+function gpPlayer(id){ return gpRoster().find(p=>p.id===id) || null; }
+function gpTotalMinutes(gp){
+  return Object.keys(gp.minutes).reduce((s,id)=> s + (parseInt(gp.minutes[id],10)||0), 0);
+}
+function gpDefaultMinutes(gp){
+  const mins = {};
+  GP_SLOTS.forEach((slot,i)=>{ const id = gp.starters[slot]; if(id) mins[id] = GP_DEFAULT_STARTER_MIN[i]; });
+  if(gp.sixthMan) mins[gp.sixthMan] = 24;
+  gp.bench.forEach((id,i)=>{ mins[id] = Math.max(0, 20 - i*4); });
+  gp.dnp.forEach(id=>{ mins[id] = 0; });
+  return mins;
+}
+// Slot assignment: picking a player already used elsewhere swaps the two.
+function gpAssign(kind, slot, id){
+  const gp = getGpDraft();
+  const clear = (pid)=>{
+    GP_SLOTS.forEach(s=>{ if(gp.starters[s]===pid) gp.starters[s]=null; });
+    if(gp.sixthMan===pid) gp.sixthMan = null;
+    gp.bench = gp.bench.filter(x=>x!==pid);
+    gp.dnp = gp.dnp.filter(x=>x!==pid);
+  };
+  const prev = kind==='starter' ? gp.starters[slot] : gp.sixthMan;
+  if(!id){
+    if(prev){ clear(prev); gp.bench.unshift(prev); }
+    if(kind==='starter') gp.starters[slot]=null; else gp.sixthMan=null;
+  } else {
+    clear(id);
+    if(kind==='starter') gp.starters[slot]=id; else gp.sixthMan=id;
+    if(prev && prev!==id){ gp.bench.unshift(prev); }
+  }
+  gpDraft = normalizeGameplan(gpRoster(), gp);
+  render();
+}
+function gpMoveBench(id, dir){
+  const gp = getGpDraft();
+  const i = gp.bench.indexOf(id);
+  const j = i + dir;
+  if(i<0 || j<0 || j>=gp.bench.length) return;
+  const tmp = gp.bench[i]; gp.bench[i] = gp.bench[j]; gp.bench[j] = tmp;
+  render();
+}
+function gpToggleDnp(id){
+  const gp = getGpDraft();
+  if(gp.dnp.includes(id)){
+    gp.dnp = gp.dnp.filter(x=>x!==id);
+    if(!gp.bench.includes(id)) gp.bench.push(id);
+  } else {
+    gp.bench = gp.bench.filter(x=>x!==id);
+    GP_SLOTS.forEach(s=>{ if(gp.starters[s]===id) gp.starters[s]=null; });
+    if(gp.sixthMan===id) gp.sixthMan = null;
+    gp.dnp.push(id);
+    gp.minutes[id] = 0;
+  }
+  gpDraft = normalizeGameplan(gpRoster(), gp);
+  render();
+}
+function gpAutoFill(){
+  const roster = gpRoster().slice();
+  const gp = { minutes:{}, starters:{}, sixthMan:null, bench:[], dnp:[] };
+  const taken = new Set();
+  const ovr = p => computeOverall(p) || 60;
+  GP_SLOTS.forEach(slot=>{
+    const fits = roster.filter(p=>!taken.has(p.id) && (p.position||'').toUpperCase()===slot).sort((a,b)=>ovr(b)-ovr(a));
+    const pick = fits[0];
+    if(pick){ gp.starters[slot]=pick.id; taken.add(pick.id); } else gp.starters[slot]=null;
+  });
+  GP_SLOTS.forEach(slot=>{
+    if(gp.starters[slot]) return;
+    const pick = roster.filter(p=>!taken.has(p.id)).sort((a,b)=>ovr(b)-ovr(a))[0];
+    if(pick){ gp.starters[slot]=pick.id; taken.add(pick.id); }
+  });
+  const rest = roster.filter(p=>!taken.has(p.id)).sort((a,b)=>ovr(b)-ovr(a));
+  if(rest.length){ gp.sixthMan = rest[0].id; }
+  gp.bench = rest.slice(1).map(p=>p.id);
+  gp.minutes = gpDefaultMinutes(gp);
+  gpDraft = normalizeGameplan(roster, gp);
+  showToast('Rotation auto-generated');
+  render();
+}
+function gpFillDefaultMinutes(){
+  const gp = getGpDraft();
+  gp.minutes = gpDefaultMinutes(gp);
+  render();
+}
+function gpSetMinutes(id, value){
+  const gp = getGpDraft();
+  gp.minutes[id] = parseInt(value,10)||0;
+  const label = document.querySelector(`[data-gp-min-label="${id}"]`);
+  if(label) label.textContent = gp.minutes[id];
+  const total = document.querySelector('[data-gp-total]');
+  if(total){
+    const t = gpTotalMinutes(gp);
+    total.textContent = t;
+    total.style.color = (t>=225 && t<=255) ? 'var(--hardwood)' : 'var(--paper-dim)';
+  }
+}
+function gpSlotOptions(gp, currentId){
+  const roster = gpRoster();
+  return `<option value="">— empty —</option>` + roster.map(p=>{
+    const ovrTxt = computeOverall(p) ? ' · '+computeOverall(p) : '';
+    return `<option value="${p.id}" ${p.id===currentId?'selected':''}>${p.name}${p.position?' ('+p.position+')':''}${ovrTxt}</option>`;
+  }).join('');
+}
+function gpMinuteSlider(id){
+  const gp = getGpDraft();
+  const val = parseInt(gp.minutes[id],10)||0;
+  return `<div style="display:flex; align-items:center; gap:10px; min-width:190px;">
+    <input type="range" min="0" max="48" step="1" value="${val}" oninput="gpSetMinutes('${id}', this.value)" style="width:130px; accent-color:var(--hardwood); background:transparent;">
+    <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--paper);"><span data-gp-min-label="${id}">${val}</span> min</span>
+  </div>`;
+}
+function gpPlayerLine(p, size){
+  return `<div style="display:flex; align-items:center; gap:10px; min-width:0;">
+    ${playerPhotoHtml(p.name, size||32)}
+    <span style="font-family:'Anton',sans-serif; font-size:13px; color:var(--paper); text-transform:uppercase;">${p.name}</span>
+    <span class="form-note">${p.position||''}${computeOverall(p)?' · '+computeOverall(p)+' OVR':''}</span>
+  </div>`;
+}
+function renderLeagueGameplan(){
+  const roster = gpRoster();
+  if(!roster.length) return `<div class="empty-state">Add players in the Roster tab first.</div>`;
+  const gp = getGpDraft();
+  const total = gpTotalMinutes(gp);
+  const totalColor = (total>=225 && total<=255) ? 'var(--hardwood)' : 'var(--paper-dim)';
+  const selStyle = "flex:1; min-width:180px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;";
+
+  const starterRows = GP_SLOTS.map((slot,i)=>{
+    const id = gp.starters[slot];
+    const p = id ? gpPlayer(id) : null;
+    return `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <span style="font-family:'Anton',sans-serif; font-size:15px; color:var(--hardwood); width:34px;">${slot}</span>
+      ${p ? playerPhotoHtml(p.name,32) : ''}
+      <select onchange="gpAssign('starter','${slot}', this.value)" style="${selStyle}">${gpSlotOptions(gp, id)}</select>
+      ${id ? gpMinuteSlider(id) : ''}
+    </div>`;
+  }).join('');
+
+  const sixth = gp.sixthMan ? gpPlayer(gp.sixthMan) : null;
+  const sixthRow = `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; border-color:var(--hardwood);">
+    <span style="font-family:'Anton',sans-serif; font-size:13px; color:var(--hardwood); width:34px;">6TH</span>
+    ${sixth ? playerPhotoHtml(sixth.name,32) : ''}
+    <select onchange="gpAssign('sixth','', this.value)" style="${selStyle}">${gpSlotOptions(gp, gp.sixthMan)}</select>
+    ${gp.sixthMan ? gpMinuteSlider(gp.sixthMan) : ''}
+  </div>`;
+
+  const benchRows = gp.bench.map((id,i)=>{
+    const p = gpPlayer(id);
+    if(!p) return '';
+    return `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <span class="form-note" style="width:34px;">${i+7}TH</span>
+      ${gpPlayerLine(p)}
+      <div style="flex:1;"></div>
+      ${gpMinuteSlider(id)}
+      <div style="display:flex; gap:4px;">
+        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpMoveBench('${id}',-1)">▲</button>
+        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpMoveBench('${id}',1)">▼</button>
+        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpToggleDnp('${id}')">DNP</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const dnpRows = gp.dnp.map(id=>{
+    const p = gpPlayer(id);
+    if(!p) return '';
+    return `<div class="score-entry" style="padding:10px 20px; display:flex; align-items:center; gap:14px; opacity:.55;">
+      ${gpPlayerLine(p, 26)}
+      <div style="flex:1;"></div>
+      <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpToggleDnp('${id}')">Add to rotation</button>
+    </div>`;
+  }).join('');
+
+  const header = (txt)=>`<h3 style="font-family:'Anton',sans-serif; font-size:14px; letter-spacing:1px; color:var(--paper); text-transform:uppercase; margin:22px 0 10px;">${txt}</h3>`;
+
   return `
-    <p class="form-note" style="margin-bottom:8px;">Assign minutes per player (0–48). A full team's minutes should add up to around 240 across five positions worth of playing time.</p>
-    <p class="form-note" style="margin-bottom:20px; color:var(--paper);">Total assigned: ${totalMinutes} min</p>
-    ${roster.length ? `<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
-      ${roster.map(p=>`
-        <div class="score-entry" style="padding:12px 20px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            ${playerPhotoHtml(p.name,32)}
-            <span style="font-family:'Anton',sans-serif; font-size:13px; color:var(--paper); text-transform:uppercase;">${p.name}</span>
-            <span class="form-note">${p.position||''}${computeOverall(p)?' · '+computeOverall(p)+' OVR':''}</span>
-          </div>
-          <input type="number" min="0" max="48" placeholder="MIN" value="${gameplan[p.id]??''}" data-gp-id="${p.id}" style="width:64px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
-        </div>`).join('')}
-    </div>` : `<div class="empty-state">Add players in the Roster tab first.</div>`}
-    ${roster.length ? `<button class="submit-btn" onclick="handleSaveGameplan()">Save Gameplan</button>` : ''}
+    <p class="form-note" style="margin-bottom:8px;">Set your starting five by position, pick a sixth man, then order the bench. Drag each slider to assign minutes (0–48).</p>
+    <p class="form-note" style="margin-bottom:14px;">Total minutes: <span data-gp-total style="color:${totalColor}; font-family:'JetBrains Mono',monospace;">${total}</span> / 240</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+      <button class="submit-btn" style="padding:6px 12px; font-size:12px;" onclick="gpAutoFill()">Auto-generate rotation</button>
+      <button class="submit-btn" style="padding:6px 12px; font-size:12px;" onclick="gpFillDefaultMinutes()">Reset minutes</button>
+    </div>
+    ${header('Starting Five')}
+    <div style="display:flex; flex-direction:column; gap:10px;">${starterRows}</div>
+    ${header('Sixth Man')}
+    ${sixthRow}
+    ${header('Bench Unit')}
+    ${gp.bench.length ? `<div style="display:flex; flex-direction:column; gap:10px;">${benchRows}</div>` : `<p class="form-note">Everyone is in the top six.</p>`}
+    ${gp.dnp.length ? header('Out of Rotation')+`<div style="display:flex; flex-direction:column; gap:8px;">${dnpRows}</div>` : ''}
+    <div style="margin-top:22px;"><button class="submit-btn" onclick="handleSaveGameplan()">Save Gameplan</button></div>
   `;
 }
 function handleSaveGameplan(){
-  const gameplan = {};
-  document.querySelectorAll('[data-gp-id]').forEach(el=>{
-    if(el.value) gameplan[el.dataset.gpId] = parseInt(el.value,10);
-  });
-  saveLeagueGameplan(currentLeagueId, gameplan);
+  const gp = getGpDraft();
+  saveLeagueGameplan(currentLeagueId, gp);
   showToast('Gameplan saved');
   render();
 }
@@ -2473,53 +2702,23 @@ function handleDeleteLeader(catKey, id){
 }
 
 /* ---------------- Render: Media (team logos / player photos) ---------------- */
-function estimateStorageUsage(){
-  let bytes = 0;
-  for(let i=0; i<localStorage.length; i++){
-    const key = localStorage.key(i);
-    if(key && key.startsWith('fairs:')) bytes += (localStorage.getItem(key)||'').length;
-  }
-  return bytes;
-}
-function handleClearAllTeamLogos(){
-  if(!confirm('Remove every uploaded team logo? This can\'t be undone.')) return;
-  localDB.set('team-logos', {});
-  teamLogos = {};
-  showToast('All team logos cleared');
-  render();
-}
-function handleClearAllPlayerPhotos(){
-  if(!confirm('Remove every uploaded player photo? This can\'t be undone.')) return;
-  localDB.set('player-photos', {});
-  playerPhotos = {};
-  showToast('All player photos cleared');
-  render();
-}
 function renderMedia(){
   const teamOptions = Object.keys(TEAM_COLORS).sort().map(t=>`<option value="${t}">${t} — ${TEAM_NAMES[t]}</option>`).join('');
   const logoKeys = Object.keys(teamLogos);
   const photoEntries = Object.entries(playerPhotos);
-  const usageKB = (estimateStorageUsage()/1024).toFixed(0);
-  const usagePct = Math.min(100, Math.round((estimateStorageUsage()/(5*1024*1024))*100));
 
   return `
     <div style="padding-top:40px; max-width:720px; margin:0 auto;">
       <p class="eyebrow">Media</p>
-      <h2 class="section-title" style="margin-bottom:16px;">Team Logos &amp; Player Photos</h2>
+      <h2 class="section-title" style="margin-bottom:24px;">Team Logos &amp; Player Photos</h2>
 
-      <div class="score-entry" style="flex-direction:column; align-items:stretch; gap:8px; margin-bottom:24px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span class="form-note" style="color:var(--paper); margin:0;">Storage used: ~${usageKB} KB (${usagePct}% of a typical 5MB browser limit)</span>
-        </div>
-        <div style="background:var(--ink); border-radius:4px; height:8px; overflow:hidden;">
-          <div style="width:${usagePct}%; height:100%; background:${usagePct>80?'var(--buzzer)':'var(--hardwood)'};"></div>
-        </div>
-        ${usagePct>70 ? `<p class="form-note" style="margin:6px 0 0; color:var(--buzzer);">Getting close to the limit — if new photos or players stop saving, clear some photos below.</p>` : ''}
-        <div style="display:flex; gap:10px; margin-top:8px;">
-          <button class="ghost-btn" style="padding:6px 14px; font-size:11px;" onclick="handleClearAllTeamLogos()">Clear All Logos</button>
-          <button class="ghost-btn" style="padding:6px 14px; font-size:11px;" onclick="handleClearAllPlayerPhotos()">Clear All Player Photos</button>
-        </div>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:24px;">
+        <button class="ghost-btn" onclick="handleRecoverImages()">Recover old photos</button>
+        <button class="ghost-btn" onclick="exportBackup()">Export backup</button>
+        <button class="ghost-btn" onclick="importBackup()">Import backup</button>
       </div>
+      <p class="form-note" style="margin-top:-14px;">"Recover old photos" pulls images back out of this browser's older storage. "Export backup" saves every logo, photo, roster and league into one file you can import into any other copy of the site.</p>
+
 
       <h3 class="section-title" style="font-size:20px; margin-bottom:14px;">Upload a Team Logo</h3>
       <div class="row2">
@@ -2914,6 +3113,145 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   b.addEventListener('click', ()=>go(b.dataset.v));
 });
 
+/* ---------------- Recovery: pull images back out of the old IndexedDB store ---------------- */
+function blobToDataUrl(blob){
+  return new Promise(res=>{
+    const fr = new FileReader();
+    fr.onload = ()=>res(fr.result);
+    fr.onerror = ()=>res(null);
+    fr.readAsDataURL(blob);
+  });
+}
+function idbOpen(name){
+  return new Promise(res=>{
+    try{
+      const req = indexedDB.open(name);
+      req.onsuccess = ()=>res(req.result);
+      req.onerror = ()=>res(null);
+      req.onblocked = ()=>res(null);
+    }catch(e){ res(null); }
+  });
+}
+function idbGetAll(db, store){
+  return new Promise(res=>{
+    try{
+      const tx = db.transaction(store, 'readonly');
+      const req = tx.objectStore(store).openCursor();
+      const out = [];
+      req.onsuccess = ()=>{
+        const cur = req.result;
+        if(!cur){ res(out); return; }
+        out.push({ key: cur.key, value: cur.value });
+        cur.continue();
+      };
+      req.onerror = ()=>res(out);
+    }catch(e){ res([]); }
+  });
+}
+async function toDataUrl(val){
+  if(!val) return null;
+  if(typeof val === 'string') return val.startsWith('data:') ? val : null;
+  if(val instanceof Blob) return await blobToDataUrl(val);
+  if(val.blob instanceof Blob) return await blobToDataUrl(val.blob);
+  if(val.data instanceof Blob) return await blobToDataUrl(val.data);
+  if(typeof val.photo === 'string' && val.photo.startsWith('data:')) return val.photo;
+  if(typeof val.dataUrl === 'string') return val.dataUrl;
+  if(val.blob instanceof ArrayBuffer || val instanceof ArrayBuffer){
+    return await blobToDataUrl(new Blob([val.blob || val]));
+  }
+  return null;
+}
+async function recoverImagesFromIndexedDB(){
+  if(!window.indexedDB) return 0;
+  let names = [];
+  try{
+    if(indexedDB.databases){
+      names = (await indexedDB.databases()).map(d=>d.name).filter(Boolean);
+    }
+  }catch(e){}
+  if(!names.length) names = ['imageDB'];
+  if(names.indexOf('imageDB')===-1) names.push('imageDB');
+  let recovered = 0;
+  for(const dbName of names){
+    const db = await idbOpen(dbName);
+    if(!db) continue;
+    const stores = Array.from(db.objectStoreNames || []);
+    for(const store of stores){
+      const rows = await idbGetAll(db, store);
+      if(!rows.length) continue;
+      const isLogo = /logo/i.test(store);
+      const isPhoto = /photo|player|image/i.test(store);
+      if(!isLogo && !isPhoto) continue;
+      const bucketKey = isLogo ? 'team-logos' : 'player-photos';
+      const bucket = localDB.get(bucketKey) || {};
+      for(const row of rows){
+        const key = String(row.key);
+        if(bucket[key]) continue;
+        const dataUrl = await toDataUrl(row.value);
+        if(!dataUrl) continue;
+        if(isLogo) bucket[key] = dataUrl;
+        else bucket[key] = { name: (row.value && row.value.name) || key, photo: dataUrl };
+        recovered++;
+      }
+      localDB.set(bucketKey, bucket);
+    }
+    try{ db.close(); }catch(e){}
+  }
+  if(recovered){
+    loadTeamLogos();
+    loadPlayerPhotos();
+    render();
+    showToast('Recovered '+recovered+' image'+(recovered===1?'':'s'));
+  }
+  return recovered;
+}
+async function handleRecoverImages(){
+  const n = await recoverImagesFromIndexedDB();
+  if(!n) showToast('No recoverable images found in this browser');
+}
+
+/* ---------------- Backup: export / import everything ---------------- */
+function exportBackup(){
+  const data = {};
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.indexOf('fairs:')===0) data[k] = localStorage.getItem(k);
+  }
+  const blob = new Blob([JSON.stringify({ version:1, saved:new Date().toISOString(), data }, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'fairs-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  showToast('Backup downloaded');
+}
+function importBackup(){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.onchange = ()=>{
+    const file = input.files[0];
+    if(!file) return;
+    const fr = new FileReader();
+    fr.onload = ()=>{
+      try{
+        const parsed = JSON.parse(fr.result);
+        const data = parsed && parsed.data ? parsed.data : parsed;
+        let count = 0;
+        Object.keys(data).forEach(k=>{
+          if(k.indexOf('fairs:')!==0) return;
+          localStorage.setItem(k, data[k]);
+          count++;
+        });
+        showToast('Restored '+count+' saved item'+(count===1?'':'s'));
+        setTimeout(()=>location.reload(), 600);
+      }catch(e){ showToast('That file could not be read'); }
+    };
+    fr.readAsText(file);
+  };
+  input.click();
+}
+
 /* ---------------- Init ---------------- */
 (function init(){
   loadScores();
@@ -2930,7 +3268,9 @@ document.querySelectorAll('nav.main button[data-v]').forEach(b=>{
   loadStandings();
   loadDraft();
   render();
+  recoverImagesFromIndexedDB();
 })();
+
 </script>
 </body>
 </html>
