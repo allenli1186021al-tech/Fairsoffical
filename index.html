@@ -500,6 +500,69 @@ const localDB = {
   }
 };
 
+/* ---------------- Image vault: images live in memory + IndexedDB (localStorage is best-effort) ---------------- */
+let imageQuotaWarned = false;
+const imgVault = {
+  _db: null,
+  open(){
+    if(this._db) return Promise.resolve(this._db);
+    return new Promise((res)=>{
+      try{
+        const req = indexedDB.open('fairs-vault', 1);
+        req.onupgradeneeded = ()=>{ const db = req.result; if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv'); };
+        req.onsuccess = ()=>{ this._db = req.result; res(this._db); };
+        req.onerror = ()=> res(null);
+      }catch(e){ res(null); }
+    });
+  },
+  async get(key){
+    const db = await this.open();
+    if(!db) return null;
+    return new Promise((res)=>{
+      try{
+        const r = db.transaction('kv','readonly').objectStore('kv').get(key);
+        r.onsuccess = ()=> res(r.result || null);
+        r.onerror = ()=> res(null);
+      }catch(e){ res(null); }
+    });
+  },
+  async set(key, value){
+    const db = await this.open();
+    if(!db) return false;
+    return new Promise((res)=>{
+      try{
+        const tx = db.transaction('kv','readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = ()=> res(true);
+        tx.onerror = ()=> res(false);
+      }catch(e){ res(false); }
+    });
+  }
+};
+function persistImages(key, value){
+  const ok = localDB.set(key, value);
+  imgVault.set(key, value);
+  if(!ok && !imageQuotaWarned){
+    imageQuotaWarned = true;
+    try{ showToast('Images saved in this browser\u2019s database (localStorage is full) \u2014 use Export backup to move them'); }catch(e){}
+  }
+  return true;
+}
+function savePlayerPhotos(all){ playerPhotos = all; persistImages('player-photos', all); }
+function saveTeamLogos(all){ teamLogos = all; persistImages('team-logos', all); }
+async function hydrateImagesFromVault(){
+  const [logos, photos] = await Promise.all([imgVault.get('team-logos'), imgVault.get('player-photos')]);
+  let changed = false;
+  if(logos && typeof logos === 'object'){
+    Object.keys(logos).forEach(k=>{ if(!teamLogos[k]){ teamLogos[k] = logos[k]; changed = true; } });
+  }
+  if(photos && typeof photos === 'object'){
+    Object.keys(photos).forEach(k=>{ if(!playerPhotos[k]){ playerPhotos[k] = photos[k]; changed = true; } });
+  }
+  if(changed) render();
+  return changed;
+}
+
 /* ---------------- Storage: scores ---------------- */
 function loadScores(){
   scores = localDB.get('scores') || [];
@@ -923,10 +986,9 @@ function handleUploadTeamLogo(){
   });
 }
 function handleRemoveTeamLogo(team){
-  const all = localDB.get('team-logos') || {};
+  const all = Object.assign({}, teamLogos, localDB.get('team-logos') || {});
   delete all[team];
-  localDB.set('team-logos', all);
-  teamLogos = all;
+  saveTeamLogos(all);
   render();
 }
 function handleUploadPlayerPhoto(){
@@ -935,19 +997,17 @@ function handleUploadPlayerPhoto(){
   if(!name){ showToast('Enter a player name first'); return; }
   if(!file){ showToast('Choose an image first'); return; }
   resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
-    const all = localDB.get('player-photos') || {};
+    const all = Object.assign({}, playerPhotos);
     all[name.toLowerCase()] = {name, photo:dataUrl};
-    localDB.set('player-photos', all);
-    playerPhotos = all;
+    savePlayerPhotos(all);
     showToast('Photo uploaded');
     render();
   });
 }
 function handleRemovePlayerPhoto(nameKey){
-  const all = localDB.get('player-photos') || {};
+  const all = Object.assign({}, playerPhotos);
   delete all[nameKey];
-  localDB.set('player-photos', all);
-  playerPhotos = all;
+  savePlayerPhotos(all);
   render();
 }
 
@@ -979,10 +1039,9 @@ function triggerTeamLogoUpload(team){
     const file = input.files[0];
     if(!file) return;
     resizeImageToDataUrl(file, 240, 'contain', (dataUrl)=>{
-      const all = localDB.get('team-logos') || {};
+      const all = Object.assign({}, teamLogos);
       all[team] = dataUrl;
-      localDB.set('team-logos', all);
-      teamLogos = all;
+      saveTeamLogos(all);
       showToast(TEAM_NAMES[team]+' logo updated');
       render();
     });
@@ -998,10 +1057,9 @@ function triggerPlayerPhotoUpload(name){
     const file = input.files[0];
     if(!file) return;
     resizeImageToDataUrl(file, 200, 'cover', (dataUrl)=>{
-      const all = localDB.get('player-photos') || {};
+      const all = Object.assign({}, playerPhotos);
       all[name.toLowerCase()] = {name, photo:dataUrl};
-      localDB.set('player-photos', all);
-      playerPhotos = all;
+      savePlayerPhotos(all);
       showToast(name+"'s photo updated");
       render();
     });
@@ -3185,7 +3243,7 @@ async function recoverImagesFromIndexedDB(){
       const isPhoto = /photo|player|image/i.test(store);
       if(!isLogo && !isPhoto) continue;
       const bucketKey = isLogo ? 'team-logos' : 'player-photos';
-      const bucket = localDB.get(bucketKey) || {};
+      const bucket = Object.assign({}, isLogo ? teamLogos : playerPhotos, localDB.get(bucketKey) || {});
       for(const row of rows){
         const key = String(row.key);
         if(bucket[key]) continue;
@@ -3195,13 +3253,11 @@ async function recoverImagesFromIndexedDB(){
         else bucket[key] = { name: (row.value && row.value.name) || key, photo: dataUrl };
         recovered++;
       }
-      localDB.set(bucketKey, bucket);
+      if(isLogo) saveTeamLogos(bucket); else savePlayerPhotos(bucket);
     }
     try{ db.close(); }catch(e){}
   }
   if(recovered){
-    loadTeamLogos();
-    loadPlayerPhotos();
     render();
     showToast('Recovered '+recovered+' image'+(recovered===1?'':'s'));
   }
@@ -3219,6 +3275,8 @@ function exportBackup(){
     const k = localStorage.key(i);
     if(k && k.indexOf('fairs:')===0) data[k] = localStorage.getItem(k);
   }
+  data['fairs:team-logos'] = JSON.stringify(teamLogos);
+  data['fairs:player-photos'] = JSON.stringify(playerPhotos);
   const blob = new Blob([JSON.stringify({ version:1, saved:new Date().toISOString(), data }, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -3240,13 +3298,24 @@ function importBackup(){
         const parsed = JSON.parse(fr.result);
         const data = parsed && parsed.data ? parsed.data : parsed;
         let count = 0;
+        const pending = [];
         Object.keys(data).forEach(k=>{
           if(k.indexOf('fairs:')!==0) return;
-          localStorage.setItem(k, data[k]);
-          count++;
+          const short = k.slice(6);
+          if(short === 'team-logos' || short === 'player-photos'){
+            try{
+              const parsedImgs = JSON.parse(data[k]) || {};
+              if(short === 'team-logos') saveTeamLogos(Object.assign({}, teamLogos, parsedImgs));
+              else savePlayerPhotos(Object.assign({}, playerPhotos, parsedImgs));
+              pending.push(imgVault.set(short, short === 'team-logos' ? teamLogos : playerPhotos));
+              count++;
+            }catch(e){}
+            return;
+          }
+          try{ localStorage.setItem(k, data[k]); count++; }catch(e){}
         });
         showToast('Restored '+count+' saved item'+(count===1?'':'s'));
-        setTimeout(()=>location.reload(), 600);
+        Promise.all(pending).then(()=> setTimeout(()=>location.reload(), 600));
       }catch(e){ showToast('That file could not be read'); }
     };
     fr.readAsText(file);
@@ -3270,7 +3339,7 @@ function importBackup(){
   loadStandings();
   loadDraft();
   render();
-  recoverImagesFromIndexedDB();
+  hydrateImagesFromVault().then(()=> recoverImagesFromIndexedDB());
 })();
 
 </script>
