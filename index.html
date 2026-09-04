@@ -317,6 +317,113 @@
   .sim-mode-desc{ padding:14px 18px 20px; text-align:center; }
   @media(max-width:640px){ .sim-mode-grid{grid-template-columns:1fr;} }
 
+  /* ---------- Simulator: polish system (cards, ratings, OVR, transitions) ---------- */
+  main{ animation:mainFadeIn .2s ease; }
+  @keyframes mainFadeIn{ from{opacity:0; transform:translateY(5px);} to{opacity:1; transform:translateY(0);} }
+
+  .sim-hub-header{
+    display:flex; align-items:center; gap:20px; margin:14px 0 24px; flex-wrap:wrap;
+    background:linear-gradient(135deg, var(--ink-soft), var(--ink) 70%);
+    border:1px solid var(--ink-line); border-radius:4px; padding:22px 26px;
+    box-shadow:0 12px 30px rgba(0,0,0,.32);
+  }
+  .sim-hub-header .badge-wrap{ flex:none; filter:drop-shadow(0 6px 14px rgba(0,0,0,.4)); }
+  .sim-stat-row{ display:flex; gap:26px; flex-wrap:wrap; margin-top:10px; }
+  .sim-stat{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.04em; color:var(--court-line-dim); text-transform:uppercase; }
+  .sim-stat b{ color:var(--paper); font-family:'Anton',sans-serif; font-size:19px; display:block; margin-top:3px; letter-spacing:.02em; text-transform:none; }
+  .sim-stat b.hot{ color:var(--hardwood); }
+
+  /* Player rating card (Roster tab) */
+  .player-card{
+    background:linear-gradient(160deg, var(--ink-soft), var(--ink) 85%); border:1px solid var(--ink-line);
+    border-radius:5px; padding:18px 20px 20px; box-shadow:0 6px 18px rgba(0,0,0,.24);
+    transition:box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+    display:flex; flex-direction:column; gap:12px; width:100%; max-width:320px;
+  }
+  .player-card:hover{ box-shadow:0 14px 30px rgba(0,0,0,.38); border-color:var(--hardwood); transform:translateY(-2px); }
+  .player-card-top{ display:flex; align-items:center; gap:12px; width:100%; justify-content:space-between; }
+  .player-card-id{ display:flex; align-items:center; gap:12px; min-width:0; }
+  .player-card-id .pname{ font-family:'Anton',sans-serif; font-size:15px; color:var(--paper); text-transform:uppercase; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .player-card-id .pmeta{ margin:2px 0 0; }
+
+  .ovr-badge{
+    flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    width:52px; height:52px; border-radius:50%; font-family:'Anton',sans-serif; font-size:19px;
+    background:var(--ink); border:2px solid var(--ink-line); color:var(--court-line-dim);
+    box-shadow:inset 0 2px 6px rgba(0,0,0,.4); transition:border-color .2s ease, color .2s ease, box-shadow .2s ease;
+  }
+  .ovr-badge .ovr-lbl{ font-family:'JetBrains Mono',monospace; font-size:7px; letter-spacing:.06em; color:var(--court-line-dim); margin-top:-2px; }
+  .ovr-badge.tier-elite{ border-color:var(--hardwood); color:var(--hardwood); box-shadow:0 0 0 3px rgba(193,121,60,.16), inset 0 2px 6px rgba(0,0,0,.3); }
+  .ovr-badge.tier-good{ border-color:#8fae5c; color:#a7c579; }
+  .ovr-badge.tier-avg{ border-color:var(--court-line-dim); color:var(--paper-dim); }
+  .ovr-badge.tier-weak{ border-color:var(--buzzer); color:var(--buzzer); }
+  .ovr-badge.pulse{ animation:ovrPulse .3s ease; }
+  @keyframes ovrPulse{ 0%{transform:scale(1.18);} 100%{transform:scale(1);} }
+
+  .attr-disclosure{ width:100%; border-top:1px dotted var(--ink-line); padding-top:10px; }
+  .attr-disclosure summary{
+    list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+    font-family:'Anton',sans-serif; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--paper-dim);
+    padding:2px 0;
+  }
+  .attr-disclosure summary::-webkit-details-marker{ display:none; }
+  .attr-disclosure summary::after{ content:'+'; font-size:15px; color:var(--hardwood); transition:transform .18s ease; }
+  .attr-disclosure[open] summary::after{ content:'\2212'; }
+  .attr-disclosure.tendencies summary{ color:var(--hardwood); }
+
+  .attr-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; margin-top:10px; }
+  .attr-field{ display:flex; flex-direction:column; gap:3px; }
+  .attr-field .alabel{ font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.03em; color:var(--court-line-dim); text-transform:uppercase; }
+  .attr-field input[type="number"]{
+    width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper);
+    padding:7px 8px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:12px;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .attr-field input[type="number"]:focus{ outline:none; border-color:var(--hardwood); box-shadow:0 0 0 2px rgba(193,121,60,.18); }
+  .attr-field input[type="number"]::-webkit-inner-spin-button{ opacity:0.4; }
+
+  .player-card-foot{ display:flex; gap:8px; flex-wrap:wrap; width:100%; align-items:center; }
+  .player-card-foot select{ flex:1; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:8px 10px; border-radius:3px; font-size:11px; }
+  .player-card-foot input[type="number"]{ width:58px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:8px 10px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .player-card .rm-btn{ margin-left:auto; }
+
+  .player-grid{ display:flex; flex-wrap:wrap; gap:18px; margin-bottom:20px; align-items:flex-start; }
+
+  /* Schedule / game rows */
+  .game-row{
+    display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+    padding:12px 18px; margin-bottom:8px; border-radius:3px; border:1px solid var(--ink-line);
+    background:var(--ink-soft); transition:background .15s ease, border-color .15s ease;
+  }
+  .game-row:hover{ background:#241f18; border-color:var(--hardwood); }
+  .game-row .gnum{ width:32px; flex:none; }
+  .game-row .matchup{ display:flex; align-items:center; gap:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--court-line); }
+  .game-row .gresult{ display:flex; align-items:center; gap:12px; }
+
+  /* League hub / sim landing polish */
+  .league-row{
+    display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 20px;
+    background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:4px; margin-bottom:12px;
+    cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.16); transition:box-shadow .18s ease, border-color .18s ease, transform .15s ease;
+  }
+  .league-row:hover{ box-shadow:0 10px 24px rgba(0,0,0,.3); border-color:var(--hardwood); transform:translateY(-2px); }
+
+  .sim-mode-grid{ margin-top:6px; }
+  .sim-mode-card{ position:relative; }
+  .sim-mode-card::before{
+    content:''; position:absolute; inset:0; border-radius:3px; padding:1px; pointer-events:none; opacity:0;
+    background:linear-gradient(135deg, var(--hardwood), transparent 60%); transition:opacity .2s ease;
+    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor; mask-composite:exclude;
+  }
+  .sim-mode-card:hover::before{ opacity:.6; }
+
+  @media(max-width:640px){
+    .player-card{ max-width:100%; }
+    .attr-grid{ grid-template-columns:1fr 1fr; }
+    .sim-hub-header{ padding:18px; }
+  }
+
   /* ---------- Article detail ---------- */
   .article-detail{max-width:720px; margin:0 auto;}
   .back-link{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--court-line-dim); display:inline-block; margin-bottom:24px;}
@@ -1459,6 +1566,14 @@ function computeOverall(p){
   if(weight===0) return null;
   return Math.round(sum/weight);
 }
+// Maps an Overall rating to a badge color tier for the roster cards.
+function ovrTier(ovr){
+  if(ovr==null) return 'tier-avg';
+  if(ovr>=85) return 'tier-elite';
+  if(ovr>=72) return 'tier-good';
+  if(ovr>=58) return 'tier-avg';
+  return 'tier-weak';
+}
 // Heavy minutes wear down low-stamina players — a small, late-game-ish efficiency tax.
 function fatiguePenalty(p){
   const minutes = currentLeagueId ? gameplanMinutes(currentLeagueId) : {};
@@ -1515,11 +1630,17 @@ function computeTeamProfile(team){
     weakest: { label: labels[sorted[sorted.length-1][0]], value: Math.round(sorted[sorted.length-1][1]) }
   };
 }
+// Chemistry is a display-only read on how unselfishly + hard the roster plays (pass tendency + hustle),
+// same spirit as computeTeamProfile — it doesn't feed the possession engine, just informs the hub header.
 function teamPower(team){
   const roster = (simRosters[team]||[]).filter(p=>computeOverall(p)!=null);
   const withOverall = roster.map(p=>({...p, overall: computeOverall(p)}));
   const avgOverall = withOverall.length ? withOverall.reduce((s,p)=>s+p.overall,0)/withOverall.length : 70;
-  return { avgOverall, players: withOverall };
+  const chemistry = withOverall.length ? Math.round(Math.max(50, Math.min(99,
+    60 + (withOverall.reduce((s,p)=>s+t(p,'tendPass'),0)/withOverall.length - 50)/2
+       + (withOverall.reduce((s,p)=>s+(p.hustle==null?50:p.hustle),0)/withOverall.length - 50)/3
+  ))) : 60;
+  return { avgOverall, chemistry, players: withOverall };
 }
 // Weighted usage share per player — assigned minutes (if a gameplan exists) multiplied by the
 // player's Usage tendency, so a bench guy set to "high usage" really does hunt his own shot.
@@ -1723,7 +1844,7 @@ function renderSimulator(){
       ${leagueList.length ? `
         <div style="display:flex; flex-direction:column; gap:14px; max-width:560px; margin:0 auto 32px;">
           ${leagueList.map(l=>`
-            <div class="score-entry" style="cursor:pointer;" onclick="openLeague('${l.id}')">
+            <div class="league-row" onclick="openLeague('${l.id}')">
               <div style="display:flex; align-items:center; gap:14px;">
                 ${teamBadgeHtml(l.myTeam,40)}
                 <div>
@@ -1847,11 +1968,15 @@ function renderLeagueHub(){
   return `
     <div style="padding-top:36px;">
       <a class="back-link" onclick="currentView='simulator'; render();">&larr; All Leagues</a>
-      <div style="display:flex; align-items:center; gap:20px; margin:14px 0 20px; flex-wrap:wrap;">
-        ${teamBadgeHtml(team,72)}
+      <div class="sim-hub-header">
+        <div class="badge-wrap">${teamBadgeHtml(team,72)}</div>
         <div>
           <h1 class="hero-headline" style="margin:0; font-size:clamp(24px,4vw,36px);">${league.name}</h1>
-          <p class="hero-meta" style="margin-top:6px;">${TEAM_NAMES[team]} · Code: ${league.code} · Chemistry: ${power.chemistry} · Rating: ${Math.round(power.avgOverall)}</p>
+          <p class="form-note" style="margin:4px 0 0;">${TEAM_NAMES[team]} · Code: ${league.code}</p>
+          <div class="sim-stat-row">
+            <div class="sim-stat">Chemistry<b class="${power.chemistry>=75?'hot':''}">${power.chemistry}</b></div>
+            <div class="sim-stat">Team Rating<b class="${power.avgOverall>=80?'hot':''}">${Math.round(power.avgOverall)}</b></div>
+          </div>
         </div>
       </div>
       <div class="conf-toggle" style="flex-wrap:wrap;">
@@ -1877,16 +2002,16 @@ function renderLeagueSeason(){
     <p class="form-note" style="margin-bottom:16px;">Full 82-game schedule for ${TEAM_NAMES[league.myTeam]}. Simulation logic for auto-advancing the season comes later — for now you can simulate games individually or all at once.</p>
     ${remaining>0 ? `<button class="submit-btn" style="margin-bottom:20px;" onclick="handleSimulateAllGames()">Simulate All Remaining Games (${remaining})</button>` : `<p class="form-note" style="margin-bottom:20px; color:var(--paper);">Full season simulated.</p>`}
     ${schedule.map(g=>`
-      <div class="score-entry" style="padding:12px 20px;">
+      <div class="game-row">
         <div style="display:flex; align-items:center; gap:12px;">
-          <span class="form-note" style="width:34px;">#${g.gameNum}</span>
-          <span class="score-line" style="font-size:14px;">
+          <span class="form-note gnum">#${g.gameNum}</span>
+          <span class="matchup">
             ${g.home ? teamBadgeHtml(g.opponent,26)+' '+g.opponent+' @ '+teamBadgeHtml(league.myTeam,26) : teamBadgeHtml(league.myTeam,26)+' @ '+teamBadgeHtml(g.opponent,26)}
           </span>
           <span class="form-note">${fmtDate(g.date)}</span>
         </div>
         ${g.played
-          ? `<div style="display:flex; align-items:center; gap:12px;">
+          ? `<div class="gresult">
                <span class="score-status">${g.myScore}-${g.oppScore}</span>
                <span style="font-family:'Anton',sans-serif; font-size:20px; color:${g.myScore>g.oppScore?'var(--hardwood)':'var(--buzzer)'};">${g.myScore>g.oppScore?'W':'L'}</span>
              </div>`
@@ -2304,49 +2429,53 @@ function renderLeagueRosterTab(){
   const roster = simRosters[team] || [];
   return `
     <p class="form-note" style="margin-bottom:16px;">Add every player with 2K-style <strong>attributes</strong> (how good they are) and <strong>tendencies</strong> (how often they do it — usage, shot frequency, 3PT/drive/post mix). Overall is a weighted average of the attributes only, so a chucker with a bad jumper still rates low but still takes the shots. Blank tendencies read as a neutral 50. Edit inline, then hit Save Ratings.</p>
-    ${roster.length ? `<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
+    ${roster.length ? `<div class="player-grid">
       ${roster.map(p=>{
         const ovr = computeOverall(p);
+        const tier = ovrTier(ovr);
         return `
-        <div class="score-entry" style="flex-direction:column; align-items:flex-start; gap:10px; min-width:260px;">
-          <div style="display:flex; align-items:center; gap:10px; width:100%; justify-content:space-between;">
-            <div style="display:flex; align-items:center; gap:10px;">
+        <div class="player-card" data-player-card="${p.id}">
+          <div class="player-card-top">
+            <div class="player-card-id">
               ${playerPhotoHtml(p.name,44)}
-              <div>
-                <div style="font-family:'Anton',sans-serif; font-size:14px; color:var(--paper); text-transform:uppercase;">${p.name}</div>
-                <div class="form-note" style="margin:0;">${p.position||''}${tendencyRead(p)?' · '+tendencyRead(p):''}</div>
+              <div style="min-width:0;">
+                <div class="pname">${p.name}</div>
+                <div class="form-note pmeta">${p.position||''}${tendencyRead(p)?' · '+tendencyRead(p):''}</div>
               </div>
             </div>
-            <span style="font-family:'Anton',sans-serif; font-size:20px; color:var(--hardwood);">${ovr??'--'}</span>
+            <div class="ovr-badge ${tier}" data-ovr-badge="${p.id}">
+              <span data-ovr-value>${ovr??'--'}</span>
+              <span class="ovr-lbl">OVR</span>
+            </div>
           </div>
-          <details style="width:100%;" open>
-            <summary class="form-note" style="margin:0; cursor:pointer; color:var(--paper-dim);">Attributes</summary>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; width:100%; margin-top:6px;">
+          <details class="attr-disclosure" open>
+            <summary>Attributes</summary>
+            <div class="attr-grid">
               ${SIM_ATTRS.map(([key,label])=>`
-                <label style="display:flex; flex-direction:column; gap:2px;">
-                  <span class="form-note" style="margin:0; font-size:10px;">${label}</span>
-                  <input type="number" min="25" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}" style="width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:5px 6px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:11px;">
+                <label class="attr-field">
+                  <span class="alabel">${label}</span>
+                  <input type="number" min="25" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}">
                 </label>`).join('')}
             </div>
           </details>
-          <details style="width:100%;">
-            <summary class="form-note" style="margin:0; cursor:pointer; color:var(--hardwood);">Tendencies</summary>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; width:100%; margin-top:6px;">
+          <details class="attr-disclosure tendencies">
+            <summary>Tendencies</summary>
+            <div class="attr-grid">
               ${SIM_TENDENCIES.map(([key,label])=>`
-                <label style="display:flex; flex-direction:column; gap:2px;">
-                  <span class="form-note" style="margin:0; font-size:10px;">${label}</span>
-                  <input type="number" min="0" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}" style="width:100%; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:5px 6px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:11px;">
+                <label class="attr-field">
+                  <span class="alabel">${label}</span>
+                  <input type="number" min="0" max="99" value="${p[key]??''}" data-rate-id="${p.id}" data-rate-field="${key}">
                 </label>`).join('')}
             </div>
           </details>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
-            <select data-rate-id="${p.id}" data-rate-field="archetype" style="flex:1; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-size:11px;">
+          <div class="player-card-foot">
+            <select data-rate-id="${p.id}" data-rate-field="archetype">
               <option value="" ${!p.archetype?'selected':''}>— Archetype —</option>
               ${['Scorer','Playmaker','3&D','Two-Way Wing','Rim Protector','Stretch Big','Combo Guard'].map(a=>`<option ${p.archetype===a?'selected':''}>${a}</option>`).join('')}
             </select>
-            <input type="number" min="18" max="45" placeholder="Age" value="${p.age??''}" data-rate-id="${p.id}" data-rate-field="age" style="width:56px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+            <input type="number" min="18" max="45" placeholder="Age" value="${p.age??''}" data-rate-id="${p.id}" data-rate-field="age">
           </div>
-          <button class="ghost-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveSimRosterPlayer('${p.id}')">Remove</button>
+          <button class="ghost-btn rm-btn" style="padding:4px 10px; font-size:10px;" onclick="handleRemoveSimRosterPlayer('${p.id}')">Remove</button>
         </div>`;
       }).join('')}
     </div>` : `<div class="empty-state" style="margin-bottom:22px;">No players added yet.</div>`}
@@ -2453,6 +2582,33 @@ function handleSaveRatings(){
   showToast('Ratings saved');
   render();
 }
+// Live-recompute a player's Overall badge as attribute fields are edited, without a full
+// page re-render (which used to wipe scroll position and collapse the open/closed disclosures).
+function liveUpdateOverall(inputEl){
+  const card = inputEl.closest('[data-player-card]');
+  if(!card) return;
+  const id = card.dataset.playerCard;
+  const base = (simRosters[leagues[currentLeagueId]?.myTeam] || []).find(p=>p.id===id) || {};
+  const draft = { ...base };
+  card.querySelectorAll('[data-rate-field]').forEach(el=>{
+    if(el.dataset.rateField==='archetype' || el.dataset.rateField==='age') return;
+    const v = parseInt(el.value,10);
+    draft[el.dataset.rateField] = isNaN(v) ? null : v;
+  });
+  const ovr = computeOverall(draft);
+  const badge = card.querySelector('[data-ovr-badge]');
+  if(!badge) return;
+  badge.classList.remove('tier-elite','tier-good','tier-avg','tier-weak');
+  badge.classList.add(ovrTier(ovr));
+  const valueEl = badge.querySelector('[data-ovr-value]');
+  if(valueEl) valueEl.textContent = ovr ?? '--';
+  badge.classList.remove('pulse');
+  void badge.offsetWidth; // restart the pulse animation
+  badge.classList.add('pulse');
+}
+document.addEventListener('input', e=>{
+  if(e.target.matches('[data-player-card] [data-rate-field]')) liveUpdateOverall(e.target);
+});
 
 /* ---------------- Render: Draft ---------------- */
 function renderDraft(){
@@ -3154,8 +3310,10 @@ function render(){
     b.classList.toggle('active', b.dataset.v===currentView || (currentView==='team' && b.dataset.v==='teams') || ((currentView.startsWith('simulator') || currentView==='league-hub') && b.dataset.v==='simulator'));
   });
   renderNavTeamDropdown();
-  window.scrollTo({top:0, behavior:'instant'});
+  if(currentView !== lastRenderedView){ window.scrollTo({top:0, behavior:'instant'}); }
+  lastRenderedView = currentView;
 }
+let lastRenderedView = null;
 function go(view){
   currentView = view;
   if(view==='scores'){
