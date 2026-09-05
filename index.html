@@ -424,6 +424,65 @@
     .sim-hub-header{ padding:18px; }
   }
 
+  /* ---------- Coach Gameplan (2K-style rotation editor) ---------- */
+  .gp-budget{
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap; background:var(--ink-soft);
+    border:1px solid var(--ink-line); border-radius:4px; padding:16px 20px; margin-bottom:20px;
+    box-shadow:0 4px 14px rgba(0,0,0,.2);
+  }
+  .gp-budget .gp-budget-label{ font-family:'Anton',sans-serif; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--paper-dim); flex:none; }
+  .gp-budget-track{ flex:1; min-width:160px; height:10px; background:var(--ink); border-radius:6px; overflow:hidden; border:1px solid var(--ink-line); }
+  .gp-budget-fill{ height:100%; width:0%; border-radius:6px; transition:width .18s ease, background .18s ease; background:var(--court-line-dim); }
+  .gp-budget-fill.under{ background:#6b6455; }
+  .gp-budget-fill.good{ background:var(--hardwood); }
+  .gp-budget-fill.over{ background:var(--buzzer); }
+  .gp-budget-num{ font-family:'JetBrains Mono',monospace; font-size:15px; color:var(--paper); flex:none; }
+  .gp-budget-num b{ color:var(--hardwood); font-size:18px; }
+
+  .gp-section-title{ font-family:'Anton',sans-serif; font-size:13px; letter-spacing:.08em; color:var(--paper); text-transform:uppercase; margin:24px 0 10px; display:flex; align-items:center; gap:8px; }
+  .gp-section-title .cnt{ font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--court-line-dim); text-transform:none; letter-spacing:0; }
+
+  .gp-row{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:10px 16px; margin-bottom:8px;
+    background:var(--ink-soft); border:1px solid var(--ink-line); border-radius:4px;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .gp-row:hover{ border-color:var(--hardwood); }
+  .gp-row.starter{ border-left:3px solid var(--hardwood); }
+  .gp-row.sixth{ border-left:3px solid #8fae5c; }
+  .gp-row.dnp{ opacity:.5; }
+  .gp-slot-tag{ font-family:'Anton',sans-serif; font-size:14px; color:var(--hardwood); width:36px; flex:none; text-align:center; }
+  .gp-row.dnp .gp-slot-tag, .gp-row .gp-slot-tag.bench-num{ color:var(--court-line-dim); font-size:12px; }
+  .gp-select{
+    flex:1; min-width:170px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper);
+    padding:8px 10px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:12px;
+  }
+  .gp-select:focus{ outline:none; border-color:var(--hardwood); }
+
+  .gp-minutes{ display:flex; align-items:center; gap:6px; flex:none; }
+  .gp-minutes input[type="range"]{ width:100px; accent-color:var(--hardwood); background:transparent; }
+  .gp-minutes input[type="number"]{
+    width:44px; text-align:center; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper);
+    padding:5px 2px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:12px;
+  }
+  .gp-minutes .unit{ font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--court-line-dim); }
+
+  .icon-btn{
+    width:26px; height:26px; flex:none; display:flex; align-items:center; justify-content:center;
+    background:var(--ink); border:1px solid var(--ink-line); color:var(--paper-dim); border-radius:3px;
+    font-family:'JetBrains Mono',monospace; font-size:13px; cursor:pointer; line-height:1;
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .icon-btn:hover{ color:var(--paper); border-color:var(--hardwood); background:rgba(193,121,60,.1); }
+  .icon-btn.warn:hover{ color:var(--buzzer); border-color:var(--buzzer); background:rgba(213,71,59,.1); }
+  .gp-actions{ display:flex; gap:4px; flex:none; }
+
+  @media(max-width:640px){
+    .gp-row{ padding:10px 12px; }
+    .gp-minutes input[type="range"]{ width:70px; }
+    .gp-budget{ padding:14px; }
+  }
+
   /* ---------- Article detail ---------- */
   .article-detail{max-width:720px; margin:0 auto;}
   .back-link{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--court-line-dim); display:inline-block; margin-bottom:24px;}
@@ -440,13 +499,91 @@
 
   @media(max-width:860px){
     .hero{grid-template-columns:1fr;}
-    nav.main{display:none;}
+    .menu-toggle{display:flex;}
+    nav.main{
+      display:none; position:absolute; top:100%; left:0; right:0; flex-direction:column; gap:2px;
+      background:var(--ink); border-bottom:2px solid var(--ink-line); padding:10px 16px 16px;
+      box-shadow:0 16px 30px rgba(0,0,0,.4); max-height:calc(100vh - 60px); overflow-y:auto;
+    }
+    nav.main.mobile-open{ display:flex; }
+    nav.main button{ width:100%; text-align:left; padding:12px 10px; font-size:15px; }
+    nav.main button.active::after{ left:10px; right:10px; }
+    .nav-team-wrap{ width:100%; }
+    .nav-team-wrap > button{ width:100%; }
+    .nav-team-dropdown{ position:static; display:none; grid-template-columns:repeat(4,1fr)!important; margin-top:8px; }
+    .nav-team-wrap.open .nav-team-dropdown{ display:grid; }
     .row2{grid-template-columns:1fr;}
   }
+  .menu-toggle{
+    display:none; flex:none; width:38px; height:38px; border-radius:3px; background:none; border:1px solid var(--ink-line);
+    align-items:center; justify-content:center; cursor:pointer; gap:4px; flex-direction:column;
+  }
+  .menu-toggle span{ display:block; width:18px; height:2px; background:var(--paper); transition:transform .2s ease, opacity .2s ease; }
+  .menu-toggle.open span:nth-child(1){ transform:translateY(6px) rotate(45deg); }
+  .menu-toggle.open span:nth-child(2){ opacity:0; }
+  .menu-toggle.open span:nth-child(3){ transform:translateY(-6px) rotate(-45deg); }
   @media(max-width:560px){
     .header-inner{padding:14px 16px;}
     .row4{grid-template-columns:1fr;}
   }
+
+  /* ---------- Global design refresh: shared components used across every page ---------- */
+  header.site{ backdrop-filter:blur(6px); background:linear-gradient(180deg, var(--ink), #17130e); }
+  .logo .mark{ box-shadow:0 0 0 2px var(--ink-line), 0 4px 10px rgba(0,0,0,.4); transition:box-shadow .2s ease; }
+  .logo:hover .mark{ box-shadow:0 0 0 2px var(--hardwood), 0 4px 14px rgba(193,121,60,.35); }
+
+  .section-title{ letter-spacing:.01em; position:relative; }
+  .eyebrow{ display:inline-flex; align-items:center; gap:8px; }
+  .eyebrow::before{ content:''; width:16px; height:2px; background:var(--hardwood); display:inline-block; }
+
+  /* Buttons: consistent radius, subtle depth, matched motion across the whole site */
+  .submit-btn{ border-radius:3px; letter-spacing:.03em; }
+  .ghost-btn{ border-radius:3px; }
+  .ghost-btn:hover{ transform:translateY(-1px); }
+  .see-all{ position:relative; }
+  .see-all::after{ content:'→'; margin-left:6px; display:inline-block; transition:transform .15s ease; }
+  .see-all:hover::after{ transform:translateX(3px); }
+
+  /* Inputs: unify the plain browser look with the rest of the design system */
+  .field input, .field select, .field textarea{ border-radius:3px; transition:border-color .15s ease, box-shadow .15s ease; }
+  .field input:focus, .field select:focus, .field textarea:focus{ box-shadow:0 0 0 3px rgba(193,121,60,.15); }
+  select{ font-family:inherit; }
+
+  /* Cards: give every reused .score-entry-based list (scores, moves, leagues, schedule) the same lift/hover language */
+  .score-entry{ border-radius:4px; }
+  .score-entry:hover{ transform:translateY(-1px); }
+  .move-entry{ border-radius:4px; transition:box-shadow .18s ease, transform .15s ease, border-color .18s ease; }
+  .move-entry:hover{ transform:translateY(-1px); border-color:var(--hardwood); }
+  .trade-card{ border-radius:4px; transition:box-shadow .18s ease, transform .15s ease, border-color .18s ease; }
+  .trade-card:hover{ transform:translateY(-1px); border-color:var(--hardwood); }
+  .card{ border-radius:4px; }
+  .leader-box{ border-radius:4px; transition:box-shadow .18s ease, border-color .18s ease; }
+  .leader-box:hover{ box-shadow:0 8px 20px rgba(0,0,0,.24); border-color:var(--ink-line); }
+  .hero-side{ border-radius:4px; }
+
+  /* Range sliders: replace the raw browser control with a styled track + thumb everywhere (gameplan minutes, etc.) */
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none; height:5px; border-radius:3px;
+    background:var(--ink-line); outline:none; cursor:pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--hardwood); border:2px solid var(--ink); box-shadow:0 2px 6px rgba(0,0,0,.5); cursor:pointer;
+    transition:transform .12s ease;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover{ transform:scale(1.15); }
+  input[type="range"]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--hardwood); border:2px solid var(--ink); cursor:pointer;
+  }
+  input[type="range"]::-moz-range-track{ height:5px; border-radius:3px; background:var(--ink-line); }
+
+  /* Empty states get a touch more presence instead of reading as a layout bug */
+  .empty-state{ border:1.5px dashed var(--ink-line); border-radius:6px; }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:var(--ink); }
+  ::-webkit-scrollbar-thumb{ background:var(--ink-line); border-radius:6px; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--hardwood-deep); }
 </style>
 </head>
 <body>
@@ -2174,18 +2311,6 @@ function gpFillDefaultMinutes(){
   gp.minutes = gpDefaultMinutes(gp);
   render();
 }
-function gpSetMinutes(id, value){
-  const gp = getGpDraft();
-  gp.minutes[id] = parseInt(value,10)||0;
-  const label = document.querySelector(`[data-gp-min-label="${id}"]`);
-  if(label) label.textContent = gp.minutes[id];
-  const total = document.querySelector('[data-gp-total]');
-  if(total){
-    const t = gpTotalMinutes(gp);
-    total.textContent = t;
-    total.style.color = (t>=225 && t<=255) ? 'var(--hardwood)' : 'var(--paper-dim)';
-  }
-}
 function gpSlotOptions(gp, currentId){
   const roster = gpRoster();
   return `<option value="">— empty —</option>` + roster.map(p=>{
@@ -2193,13 +2318,51 @@ function gpSlotOptions(gp, currentId){
     return `<option value="${p.id}" ${p.id===currentId?'selected':''}>${p.name}${p.position?' ('+p.position+')':''}${ovrTxt}</option>`;
   }).join('');
 }
-function gpMinuteSlider(id){
+// Coach-style minutes control: a team can only hand out 240 total minutes (5 players x 48
+// regulation minutes). Setting one player's minutes clamps to whatever budget is left over,
+// instead of silently letting the team total run past what's possible in a real game.
+const GP_TEAM_MINUTES_CAP = 240;
+function gpMinuteControl(id){
   const gp = getGpDraft();
   const val = parseInt(gp.minutes[id],10)||0;
-  return `<div style="display:flex; align-items:center; gap:10px; min-width:190px;">
-    <input type="range" min="0" max="48" step="1" value="${val}" oninput="gpSetMinutes('${id}', this.value)" style="width:130px; accent-color:var(--hardwood); background:transparent;">
-    <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--paper);"><span data-gp-min-label="${id}">${val}</span> min</span>
+  return `<div class="gp-minutes">
+    <button class="icon-btn" onclick="gpStepMinutes('${id}',-1)" aria-label="Decrease minutes">−</button>
+    <input type="range" min="0" max="48" step="1" value="${val}" data-gp-range="${id}" oninput="gpSetMinutes('${id}', this.value)">
+    <input type="number" min="0" max="48" value="${val}" data-gp-num="${id}" onchange="gpSetMinutes('${id}', this.value)">
+    <button class="icon-btn" onclick="gpStepMinutes('${id}',1)" aria-label="Increase minutes">+</button>
   </div>`;
+}
+function gpStepMinutes(id, dir){
+  const gp = getGpDraft();
+  const cur = parseInt(gp.minutes[id],10)||0;
+  gpSetMinutes(id, cur+dir);
+}
+function gpSetMinutes(id, value){
+  const gp = getGpDraft();
+  const requested = Math.max(0, Math.min(48, parseInt(value,10)||0));
+  const prev = parseInt(gp.minutes[id],10)||0;
+  const otherTotal = gpTotalMinutes(gp) - prev;
+  const maxAllowed = Math.max(0, GP_TEAM_MINUTES_CAP - otherTotal);
+  const clamped = Math.min(requested, maxAllowed);
+  gp.minutes[id] = clamped;
+  const range = document.querySelector(`[data-gp-range="${id}"]`);
+  const num = document.querySelector(`[data-gp-num="${id}"]`);
+  if(range) range.value = clamped;
+  if(num) num.value = clamped;
+  if(clamped < requested) showToast('Team minutes are capped at 240 — no more to give out');
+  gpUpdateBudgetUI();
+}
+function gpUpdateBudgetUI(){
+  const gp = getGpDraft();
+  const total = gpTotalMinutes(gp);
+  const label = document.querySelector('[data-gp-total]');
+  const fill = document.querySelector('[data-gp-budget-fill]');
+  if(label) label.textContent = total;
+  if(fill){
+    fill.style.width = Math.min(100, (total/GP_TEAM_MINUTES_CAP)*100)+'%';
+    fill.classList.remove('under','good','over');
+    fill.classList.add(total>GP_TEAM_MINUTES_CAP ? 'over' : (total>=225 ? 'good' : 'under'));
+  }
 }
 function gpPlayerLine(p, size){
   return `<div style="display:flex; align-items:center; gap:10px; min-width:0;">
@@ -2213,40 +2376,39 @@ function renderLeagueGameplan(){
   if(!roster.length) return `<div class="empty-state">Add players in the Roster tab first.</div>`;
   const gp = getGpDraft();
   const total = gpTotalMinutes(gp);
-  const totalColor = (total>=225 && total<=255) ? 'var(--hardwood)' : 'var(--paper-dim)';
-  const selStyle = "flex:1; min-width:180px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:6px 8px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12px;";
+  const barState = total>GP_TEAM_MINUTES_CAP ? 'over' : (total>=225 ? 'good' : 'under');
 
   const starterRows = GP_SLOTS.map((slot,i)=>{
     const id = gp.starters[slot];
     const p = id ? gpPlayer(id) : null;
-    return `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-      <span style="font-family:'Anton',sans-serif; font-size:15px; color:var(--hardwood); width:34px;">${slot}</span>
+    return `<div class="gp-row starter">
+      <span class="gp-slot-tag">${slot}</span>
       ${p ? playerPhotoHtml(p.name,32) : ''}
-      <select onchange="gpAssign('starter','${slot}', this.value)" style="${selStyle}">${gpSlotOptions(gp, id)}</select>
-      ${id ? gpMinuteSlider(id) : ''}
+      <select class="gp-select" onchange="gpAssign('starter','${slot}', this.value)">${gpSlotOptions(gp, id)}</select>
+      ${id ? gpMinuteControl(id) : ''}
     </div>`;
   }).join('');
 
   const sixth = gp.sixthMan ? gpPlayer(gp.sixthMan) : null;
-  const sixthRow = `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; border-color:var(--hardwood);">
-    <span style="font-family:'Anton',sans-serif; font-size:13px; color:var(--hardwood); width:34px;">6TH</span>
+  const sixthRow = `<div class="gp-row sixth">
+    <span class="gp-slot-tag">6TH</span>
     ${sixth ? playerPhotoHtml(sixth.name,32) : ''}
-    <select onchange="gpAssign('sixth','', this.value)" style="${selStyle}">${gpSlotOptions(gp, gp.sixthMan)}</select>
-    ${gp.sixthMan ? gpMinuteSlider(gp.sixthMan) : ''}
+    <select class="gp-select" onchange="gpAssign('sixth','', this.value)">${gpSlotOptions(gp, gp.sixthMan)}</select>
+    ${gp.sixthMan ? gpMinuteControl(gp.sixthMan) : ''}
   </div>`;
 
   const benchRows = gp.bench.map((id,i)=>{
     const p = gpPlayer(id);
     if(!p) return '';
-    return `<div class="score-entry" style="padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-      <span class="form-note" style="width:34px;">${i+7}TH</span>
+    return `<div class="gp-row bench">
+      <span class="gp-slot-tag bench-num">${i+7}TH</span>
       ${gpPlayerLine(p)}
       <div style="flex:1;"></div>
-      ${gpMinuteSlider(id)}
-      <div style="display:flex; gap:4px;">
-        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpMoveBench('${id}',-1)">▲</button>
-        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpMoveBench('${id}',1)">▼</button>
-        <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpToggleDnp('${id}')">DNP</button>
+      ${gpMinuteControl(id)}
+      <div class="gp-actions">
+        <button class="icon-btn" onclick="gpMoveBench('${id}',-1)" aria-label="Move up">▲</button>
+        <button class="icon-btn" onclick="gpMoveBench('${id}',1)" aria-label="Move down">▼</button>
+        <button class="icon-btn warn" onclick="gpToggleDnp('${id}')" aria-label="Move to DNP">DNP</button>
       </div>
     </div>`;
   }).join('');
@@ -2254,29 +2416,31 @@ function renderLeagueGameplan(){
   const dnpRows = gp.dnp.map(id=>{
     const p = gpPlayer(id);
     if(!p) return '';
-    return `<div class="score-entry" style="padding:10px 20px; display:flex; align-items:center; gap:14px; opacity:.55;">
+    return `<div class="gp-row dnp">
       ${gpPlayerLine(p, 26)}
       <div style="flex:1;"></div>
-      <button class="submit-btn" style="padding:4px 8px; font-size:11px;" onclick="gpToggleDnp('${id}')">Add to rotation</button>
+      <button class="ghost-btn" style="padding:4px 10px; font-size:11px;" onclick="gpToggleDnp('${id}')">Add to rotation</button>
     </div>`;
   }).join('');
 
-  const header = (txt)=>`<h3 style="font-family:'Anton',sans-serif; font-size:14px; letter-spacing:1px; color:var(--paper); text-transform:uppercase; margin:22px 0 10px;">${txt}</h3>`;
-
   return `
-    <p class="form-note" style="margin-bottom:8px;">Set your starting five by position, pick a sixth man, then order the bench. Drag each slider to assign minutes (0–48).</p>
-    <p class="form-note" style="margin-bottom:14px;">Total minutes: <span data-gp-total style="color:${totalColor}; font-family:'JetBrains Mono',monospace;">${total}</span> / 240</p>
+    <p class="form-note" style="margin-bottom:14px;">Set your starting five by position, pick a sixth man, then order the bench. A team only has 240 minutes to hand out (5 players × 48) — raising one player's minutes automatically caps everyone else at what's left.</p>
+    <div class="gp-budget">
+      <span class="gp-budget-label">Minutes Used</span>
+      <div class="gp-budget-track"><div class="gp-budget-fill ${barState}" data-gp-budget-fill style="width:${Math.min(100,(total/GP_TEAM_MINUTES_CAP)*100)}%;"></div></div>
+      <span class="gp-budget-num"><b data-gp-total>${total}</b> / ${GP_TEAM_MINUTES_CAP}</span>
+    </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
       <button class="submit-btn" style="padding:6px 12px; font-size:12px;" onclick="gpAutoFill()">Auto-generate rotation</button>
-      <button class="submit-btn" style="padding:6px 12px; font-size:12px;" onclick="gpFillDefaultMinutes()">Reset minutes</button>
+      <button class="ghost-btn" style="padding:6px 12px; font-size:12px;" onclick="gpFillDefaultMinutes()">Reset minutes</button>
     </div>
-    ${header('Starting Five')}
-    <div style="display:flex; flex-direction:column; gap:10px;">${starterRows}</div>
-    ${header('Sixth Man')}
+    <div class="gp-section-title">Starting Five</div>
+    <div>${starterRows}</div>
+    <div class="gp-section-title">Sixth Man</div>
     ${sixthRow}
-    ${header('Bench Unit')}
-    ${gp.bench.length ? `<div style="display:flex; flex-direction:column; gap:10px;">${benchRows}</div>` : `<p class="form-note">Everyone is in the top six.</p>`}
-    ${gp.dnp.length ? header('Out of Rotation')+`<div style="display:flex; flex-direction:column; gap:8px;">${dnpRows}</div>` : ''}
+    <div class="gp-section-title">Bench Unit <span class="cnt">${gp.bench.length} players</span></div>
+    ${gp.bench.length ? `<div>${benchRows}</div>` : `<p class="form-note">Everyone is in the top six.</p>`}
+    ${gp.dnp.length ? `<div class="gp-section-title">Out of Rotation <span class="cnt">${gp.dnp.length}</span></div><div>${dnpRows}</div>` : ''}
     <div style="margin-top:22px;"><button class="submit-btn" onclick="handleSaveGameplan()">Save Gameplan</button></div>
   `;
 }
