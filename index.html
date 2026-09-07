@@ -483,6 +483,13 @@
     .gp-budget{ padding:14px; }
   }
 
+  .gsheet-panel{
+    background:var(--ink-soft); border:1px solid var(--ink-line); border-left:3px solid var(--hardwood);
+    border-radius:4px; padding:16px 18px; margin-bottom:20px; box-shadow:0 4px 14px rgba(0,0,0,.18);
+  }
+  .gsheet-panel-head{ font-family:'Anton',sans-serif; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--paper); margin-bottom:4px; }
+  #gsheetUrlInput:focus{ outline:none; border-color:var(--hardwood); box-shadow:0 0 0 2px rgba(193,121,60,.18); }
+
   /* ---------- Article detail ---------- */
   .article-detail{max-width:720px; margin:0 auto;}
   .back-link{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--court-line-dim); display:inline-block; margin-bottom:24px;}
@@ -1020,63 +1027,46 @@ function generateLeagueCode(){
   for(let i=0;i<6;i++) code += chars[Math.floor(Math.random()*chars.length)];
   return code;
 }
-// Real current rosters (name, position) sourced from RealGM.com — filled in team by team.
-// Teams not yet covered here just start blank, same as before.
-const REAL_ROSTERS = {
-  ATL: [['Nickeil Alexander-Walker','SG'],['Tony Bradley','C'],['Devin Carter','G'],['Dyson Daniels','GF'],
-    ["N'Faly Dante",'PF'],['RayJ Dennis','PG'],['Nikola Djurisic','F'],['Keshon Gilbert','G'],['Mouhamed Gueye','F'],
-    ['Buddy Hield','G'],['Caleb Houstan','SF'],['Jalen Johnson','PF'],['Luke Kennard','SG'],['Corey Kispert','SF'],
-    ['Christian Koloko','C'],['Vit Krejci','PG'],['Jonathan Kuminga','F'],['Jock Landale','C'],['C.J. McCollum','G'],
-    ["Eli N'Diaye",'C'],['Asa Newell','PF'],['Onyeka Okongwu','PF'],['Kristaps Porzingis','FC'],['Duop Reath','C'],
-    ['Zaccharie Risacher','F'],['Jacob Toppin','SF'],['Gabe Vincent','G'],['Keaton Wallace','G'],
-    ['Malik Williams','C'],['Trae Young','PG']],
-  BOS: [['Dalano Banton','PG'],['Charles Bassey','PF'],['Chris Boucher','PF'],['Jaylen Brown','SF'],['Luka Garza','C'],
-    ['Hugo Gonzalez','F'],['Ron Harper Jr.','G'],['Sam Hauser','SF'],['Josh Minott','F'],['Payton Pritchard','PG'],
-    ['Neemias Queta','C'],['Baylor Scheierman','PG'],['Max Shulga','G'],['Anfernee Simons','SG'],['Jayson Tatum','SF'],
-    ['Xavier Tillman Sr.','PF'],['John Tonje','GF'],['Nikola Vucevic','PF'],['Jordan Walsh','F'],['Derrick White','G'],
-    ['Amari Williams','PF']],
-  BKN: [['Ochai Agbaji','SF'],['Nicolas Claxton','C'],['Noah Clowney','F'],['Egor Demin','PG'],['Tyson Etienne','G'],
-    ['Haywood Highsmith','F'],['Chaney Johnson','F'],['E.J. Liddell','PF'],['Terance Mann','SG'],
-    ['Tyrese Martin','GF'],['Josh Minott','F'],['Grant Nelson','F'],['Michael Porter Jr.','PF'],['Drake Powell','F'],
-    ['Ben Saraf','G'],['Tre Scott','SF'],["Day'Ron Sharpe",'PF'],['Malachi Smith','G'],['Cam Thomas','PG'],
-    ['Nolan Traore','F'],['Ziaire Williams','F'],['Jalen Wilson','F'],['Danny Wolf','C']],
-  NYK: [['Jose Alvarado','G'],['OG Anunoby','SF'],['Mikal Bridges','SG'],['Jalen Brunson','PG'],['Jordan Clarkson','G'],
-    ['Pacome Dadiet','SF'],['Mohamed Diawara','PF'],['Tosan Evbuomwan','SF'],['Josh Hart','SG'],['Ariel Hukporti','C'],
-    ['Trey Jemison','PF'],['Dillon Jones','PG'],['Tyler Kolek','G'],['Miles McBride','G'],
-    ['Kevin McCullar Jr.','PG'],['Mitchell Robinson','C'],['Landry Shamet','PG'],['Jeremy Sochan','SG'],
-    ['Karl-Anthony Towns','C'],['Guerschon Yabusele','PF']],
-  OKC: [['Brooks Barnhizer','SF'],['Buddy Boeheim','SG'],['Branden Carlson','PF'],['Alex Caruso','G'],
-    ['Ousmane Dieng','SG'],['Luguentz Dort','PG'],['Shai Gilgeous-Alexander','PG'],['Isaiah Hartenstein','PF'],
-    ['Chet Holmgren','C'],['Isaiah Joe','SG'],['Jared McCain','G'],['Ajay Mitchell','PG'],['Payton Sandfort','PF'],
-    ['Thomas Sorber','FC'],['Nikola Topic','PG'],['Cason Wallace','G'],['Aaron Wiggins','F'],['Jalen Williams','G'],
-    ['Jaylin Williams','C'],['Kenrich Williams','SF'],['Chris Youngblood','SG']]
-};
+// The simulator no longer keeps its own separate roster list — every team's simulator roster is
+// sourced straight from what's saved on that team's "Find Your Team" page, so the two are always
+// identical. (Previously the simulator merged in a small hardcoded roster for a few teams that had
+// drifted out of date and didn't match Find Your Team — that's been removed.)
 function normalizePlayerName(n){ return (n||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
-function seedLeagueRosters(leagueId){
-  // Real rosters (name+position) where we've pulled them from RealGM; blank slate for every other team.
-  const rostersForLeague = {};
-  Object.keys(TEAM_COLORS).forEach(team=>{
-    if(REAL_ROSTERS[team]){
-      rostersForLeague[team] = REAL_ROSTERS[team].map((row,i)=>({
-        id:'real-'+team+'-'+i, name:row[0], position:row[1], overall:null, archetype:'', age:null
-      }));
-    } else {
-      rostersForLeague[team] = [];
-    }
-    // Pull in anything saved for this team in Find Your Team, skipping duplicate names.
-    const mine = (localDB.get('rosters') || {})[team] || [];
-    const seen = new Set(rostersForLeague[team].map(p=>normalizePlayerName(p.name)));
-    mine.forEach((p,i)=>{
-      const key = normalizePlayerName(p.name);
-      if(!p.name || seen.has(key)) return;
-      seen.add(key);
-      rostersForLeague[team].push({
-        id:'imp-'+team+'-'+i, name:p.name, position:p.position||'', number:p.number||'',
-        overall:null, archetype:'', age:null
-      });
-    });
+// Builds one team's simulator roster from Find Your Team, keeping any ratings/archetype/age the
+// user already entered in the simulator for a player who's still on the team (matched by name).
+function buildSimRosterFromFindYourTeam(team, existingList){
+  const fyt = (localDB.get('rosters') || {})[team] || [];
+  const existingByName = {};
+  (existingList||[]).forEach(p=>{ existingByName[normalizePlayerName(p.name)] = p; });
+  return fyt.filter(p=>p.name).map((p,i)=>{
+    const prev = existingByName[normalizePlayerName(p.name)];
+    return prev
+      ? { ...prev, name:p.name, position:p.position||prev.position||'', number:p.number||prev.number }
+      : { id:'fyt-'+team+'-'+i, name:p.name, position:p.position||'', number:p.number||'', overall:null, archetype:'', age:null };
   });
+}
+function seedLeagueRosters(leagueId){
+  const rostersForLeague = {};
+  Object.keys(TEAM_COLORS).forEach(team=>{ rostersForLeague[team] = buildSimRosterFromFindYourTeam(team, null); });
   localDB.set('sim-rosters:'+leagueId, rostersForLeague);
+}
+// Re-syncs an already-created league back to Find Your Team (e.g. after editing a roster there,
+// or to fix a league that was seeded before rosters could drift apart).
+function syncLeagueRostersFromFindYourTeam(leagueId){
+  const all = localDB.get('sim-rosters:'+leagueId) || {};
+  const rostersForLeague = {};
+  Object.keys(TEAM_COLORS).forEach(team=>{ rostersForLeague[team] = buildSimRosterFromFindYourTeam(team, all[team]); });
+  localDB.set('sim-rosters:'+leagueId, rostersForLeague);
+  if(leagueId === currentLeagueId) simRosters = rostersForLeague;
+}
+function syncAllLeaguesRostersFromFindYourTeam(){
+  Object.keys(localDB.get('leagues') || {}).forEach(id=> syncLeagueRostersFromFindYourTeam(id));
+}
+function handleSyncRostersFromFindYourTeam(){
+  if(!currentLeagueId) return;
+  syncLeagueRostersFromFindYourTeam(currentLeagueId);
+  showToast('Roster synced from Find Your Team');
+  render();
 }
 function generateSeasonSchedule(myTeam){
   const others = Object.keys(TEAM_COLORS).filter(t=>t!==myTeam);
@@ -2587,11 +2577,140 @@ const SIM_TENDENCIES = [
   ['tendPass','Pass Tendency'], ['tendCrash','Crash Glass']
 ];
 
+/* ---- Google Sheet sync for attributes: export current roster to CSV, edit it in Sheets,
+   publish that sheet to the web as CSV, then pull the edited numbers back in. ---- */
+function csvEscape(v){
+  const s = (v===null||v===undefined) ? '' : String(v);
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function exportRosterCsv(){
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const roster = simRosters[team] || [];
+  if(!roster.length){ showToast('No players on this roster yet'); return; }
+  const header = ['Name','Position','Number','Archetype','Age', ...SIM_ATTRS.map(a=>a[1]), ...SIM_TENDENCIES.map(a=>a[1])];
+  const lines = [header.map(csvEscape).join(',')];
+  roster.forEach(p=>{
+    const row = [p.name, p.position||'', p.number||'', p.archetype||'', p.age??'',
+      ...SIM_ATTRS.map(a=>p[a[0]]??''), ...SIM_TENDENCIES.map(a=>p[a[0]]??'')];
+    lines.push(row.map(csvEscape).join(','));
+  });
+  const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (team||'roster')+'-attributes.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  showToast('CSV downloaded — open it with Google Sheets (File \u2192 Import \u2192 Upload)');
+}
+// Minimal CSV parser: handles quoted fields containing commas, newlines, and escaped quotes.
+function parseCsv(text){
+  const rows = []; let row = []; let field = ''; let inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){ if(text[i+1] === '"'){ field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if(c === '\r'){ /* skip */ }
+      else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r=> r.some(c=>c!==''));
+}
+function normalizeHeader(h){ return (h||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function gsheetUrlKey(){ return 'gsheet-url:'+currentLeagueId; }
+function saveGsheetUrl(url){ localDB.set(gsheetUrlKey(), url); }
+function loadGsheetUrl(){ return localDB.get(gsheetUrlKey()) || ''; }
+// A normal Sheets share/edit URL gets converted to its CSV export link; a "Publish to web" CSV
+// link (or any other direct CSV URL) is used as-is.
+function toCsvExportUrl(url){
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if(!m) return url;
+  const gidMatch = url.match(/[?#&]gid=([0-9]+)/);
+  return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv&gid=${gidMatch?gidMatch[1]:'0'}`;
+}
+async function handleSyncFromGoogleSheet(){
+  const input = document.getElementById('gsheetUrlInput');
+  const url = input ? input.value.trim() : '';
+  if(!url){ showToast('Paste your published Google Sheet link first'); return; }
+  saveGsheetUrl(url);
+  let text;
+  try{
+    const res = await fetch(toCsvExportUrl(url));
+    if(!res.ok) throw new Error('bad response');
+    text = await res.text();
+  }catch(e){
+    showToast("Couldn't reach that sheet — make sure it's published to the web (or shared as \"Anyone with the link\")");
+    return;
+  }
+  const rows = parseCsv(text);
+  if(rows.length < 2){ showToast('That sheet looks empty'); return; }
+  const header = rows[0].map(normalizeHeader);
+  const colIndex = {};
+  const registerCol = (key, label) => {
+    let idx = header.indexOf(normalizeHeader(key));
+    if(idx === -1) idx = header.indexOf(normalizeHeader(label));
+    if(idx !== -1) colIndex[key] = idx;
+  };
+  registerCol('name','name'); registerCol('position','position'); registerCol('number','number');
+  registerCol('archetype','archetype'); registerCol('age','age');
+  SIM_ATTRS.forEach(([k,l])=>registerCol(k,l));
+  SIM_TENDENCIES.forEach(([k,l])=>registerCol(k,l));
+  if(colIndex.name === undefined){ showToast('Could not find a "Name" column in that sheet'); return; }
+
+  const league = leagues[currentLeagueId];
+  const team = league.myTeam;
+  const all = localDB.get(simRostersKey()) || {};
+  const roster = all[team] || [];
+  const byName = {};
+  roster.forEach(p=> byName[normalizePlayerName(p.name)] = p);
+
+  let updated = 0;
+  rows.slice(1).forEach(r=>{
+    const name = r[colIndex.name];
+    if(!name) return;
+    const p = byName[normalizePlayerName(name)];
+    if(!p) return; // only players already on the simulator roster (via Find Your Team) get updated
+    [...SIM_ATTRS, ...SIM_TENDENCIES].forEach(([k])=>{
+      if(colIndex[k]===undefined) return;
+      const raw = r[colIndex[k]];
+      if(raw===undefined || raw==='') return;
+      const num = parseInt(raw,10);
+      if(!isNaN(num)) p[k] = Math.max(0, Math.min(99, num));
+    });
+    if(colIndex.archetype!==undefined && r[colIndex.archetype]) p.archetype = r[colIndex.archetype];
+    if(colIndex.age!==undefined && r[colIndex.age]){ const a = parseInt(r[colIndex.age],10); if(!isNaN(a)) p.age = a; }
+    updated++;
+  });
+  all[team] = roster;
+  localDB.set(simRostersKey(), all);
+  simRosters = all;
+  showToast('Synced '+updated+' player'+(updated===1?'':'s')+' from Google Sheet');
+  render();
+}
+
 function renderLeagueRosterTab(){
   const league = leagues[currentLeagueId];
   const team = league.myTeam;
   const roster = simRosters[team] || [];
   return `
+    <p class="form-note" style="margin-bottom:10px;">This roster is pulled straight from <strong>${TEAM_NAMES[team]}'s</strong> Find Your Team page, so the two always match. Add or fix players over there, then sync here.</p>
+    <button class="ghost-btn" style="padding:6px 12px; font-size:12px; margin-bottom:16px;" onclick="handleSyncRostersFromFindYourTeam()">Sync from Find Your Team</button>
+    <div class="gsheet-panel">
+      <div class="gsheet-panel-head">Google Sheet Sync</div>
+      <p class="form-note" style="margin:2px 0 12px;">Prefer editing attributes in a spreadsheet? Export a CSV, edit it in Google Sheets, publish that sheet to the web as CSV, then paste the link below and sync — it'll update every matching player on this roster.</p>
+      <button class="ghost-btn" style="padding:6px 12px; font-size:12px; margin-bottom:12px;" onclick="exportRosterCsv()">Export CSV</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input type="text" id="gsheetUrlInput" placeholder="Paste published Google Sheet CSV link\u2026" value="${loadGsheetUrl()}" style="flex:1; min-width:220px; background:var(--ink); border:1px solid var(--ink-line); color:var(--paper); padding:8px 10px; border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+        <button class="submit-btn" style="padding:8px 14px; font-size:12px;" onclick="handleSyncFromGoogleSheet()">Sync from Sheet</button>
+      </div>
+      <p class="form-note" style="margin:10px 0 0; font-size:11px;">In Sheets: File \u2192 Share \u2192 Publish to web \u2192 pick this sheet \u2192 Comma-separated values (.csv) \u2192 Publish, then copy that link here. Matches players by name, so keep the Name column as-is.</p>
+    </div>
     <p class="form-note" style="margin-bottom:16px;">Add every player with 2K-style <strong>attributes</strong> (how good they are) and <strong>tendencies</strong> (how often they do it — usage, shot frequency, 3PT/drive/post mix). Overall is a weighted average of the attributes only, so a chucker with a bad jumper still rates low but still takes the shots. Blank tendencies read as a neutral 50. Edit inline, then hit Save Ratings.</p>
     ${roster.length ? `<div class="player-grid">
       ${roster.map(p=>{
@@ -3660,6 +3779,12 @@ function importBackup(){
   loadStatLeaders();
   loadStandings();
   loadDraft();
+  // One-time fix: rosters used to drift out of sync between the Simulator and Find Your Team.
+  // Bring every existing league's simulator rosters back in line, once.
+  if(!localDB.get('sim-roster-sync-v2')){
+    syncAllLeaguesRostersFromFindYourTeam();
+    localDB.set('sim-roster-sync-v2', true);
+  }
   render();
   hydrateImagesFromVault().then(()=> recoverImagesFromIndexedDB());
 })();
