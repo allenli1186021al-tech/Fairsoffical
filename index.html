@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Courtside Ticker</title>
+<title>Fairs</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=Big+Shoulders+Display:wght@700;800&display=swap" rel="stylesheet">
@@ -45,7 +45,6 @@ p { margin: 0; }
 .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; }
 .brand { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 h1 { margin: 0; font: 800 clamp(32px, 6vw, 48px)/0.95 var(--font-display); text-transform: uppercase; letter-spacing: 0.02em; }
-.demo { align-self: flex-start; font: 600 12px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
 .controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; }
 .ctl { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ctl > span { font: 600 11px var(--font-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); }
@@ -61,17 +60,13 @@ h2 { margin: 0 0 10px; font: 700 13px var(--font-label); letter-spacing: 0.14em;
 .game { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
 .game.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .pick { display: block; width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px; }
-.g-top { display: flex; align-items: center; gap: 10px; padding-right: 34px; margin-bottom: 6px; }
+.g-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .g-clock { font: 600 14px var(--font-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .g-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; padding: 2px 0; }
 .g-abbr { font: 700 19px var(--font-label); letter-spacing: 0.04em; }
 .g-score { font: 800 32px/1 var(--font-display); font-variant-numeric: tabular-nums; transform-origin: right center; }
 .g-row.trail .g-score { color: var(--ink-2); }
 .g-last { display: block; margin-top: 8px; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.star { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--ink-2); }
-.star svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
-.star[aria-pressed="true"] { color: var(--accent-text); }
-.star[aria-pressed="true"] svg { fill: currentColor; }
 
 .chip { width: 14px; height: 14px; border-radius: 3px; background: var(--c); }
 .chip.sm { width: 10px; height: 10px; flex: none; margin-top: 6px; }
@@ -143,24 +138,9 @@ td.dim { color: var(--ink-2); }
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1>Courtside Ticker</h1>
-      <span class="demo">Demo feed · simulated games, invented players</span>
+      <h1>Fairs</h1>
     </div>
     <div class="controls">
-      <div class="ctl"><span>Game speed</span>
-        <div class="seg" role="group" aria-label="Game speed">
-          <button type="button" data-act="speed" data-val="2000" aria-pressed="true">Normal</button>
-          <button type="button" data-act="speed" data-val="900" aria-pressed="false">Fast</button>
-          <button type="button" data-act="speed" data-val="300" aria-pressed="false">Turbo</button>
-        </div>
-      </div>
-      <div class="ctl"><span>Highlight alerts</span>
-        <div class="seg" role="group" aria-label="Highlight alerts">
-          <button type="button" data-act="alerts" data-val="all" aria-pressed="true">All games</button>
-          <button type="button" data-act="alerts" data-val="followed" aria-pressed="false">Followed</button>
-          <button type="button" data-act="alerts" data-val="off" aria-pressed="false">Off</button>
-        </div>
-      </div>
       <button type="button" class="btn" id="pause" data-act="pause">Pause</button>
       <button type="button" class="btn" data-act="restart">New slate</button>
     </div>
@@ -189,7 +169,7 @@ td.dim { color: var(--ink-2); }
     </section>
   </div>
 
-  <p class="note">Star a game to follow it, then set alerts to Followed. Dunks, threes, blocks and final scores pop up as they happen. This page runs on a built-in game simulator. To go live, replace the simulator's step function with a real scores feed.</p>
+  <p class="note">Click a game to watch it. Dunks, threes, blocks and final scores for that game pop up as they happen. This page runs on a built-in game simulator. To go live, replace the simulator's step function with a real scores feed.</p>
 </div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
@@ -231,7 +211,8 @@ td.dim { color: var(--ink-2); }
   ];
   var SHOTS = ['a jumper', 'a three-pointer', 'a layup', 'a floater', 'a fadeaway'];
 
-  var state = { speed: 2000, alerts: 'all', filter: 'all', scope: 'game', paused: false };
+  var TICK_MS = 2000;
+  var state = { filter: 'all', scope: 'game', paused: false };
   var games = [];
   var sel = 0;
   var pid = 0;
@@ -316,14 +297,14 @@ td.dim { color: var(--ink-2); }
     if (live) onPlay(g, p);
   }
 
-  function newGame(i, m, followed) {
-    var g = { id: i, side: { a: m[0], h: m[1] }, score: { a: 0, h: 0 }, qs: [{ a: 0, h: 0 }], q: 1, clock: 720, status: 'live', poss: rnd() < 0.5 ? 'a' : 'h', plays: [], followed: followed };
+  function newGame(i, m) {
+    var g = { id: i, side: { a: m[0], h: m[1] }, score: { a: 0, h: 0 }, qs: [{ a: 0, h: 0 }], q: 1, clock: 720, status: 'live', poss: rnd() < 0.5 ? 'a' : 'h', plays: [] };
     addPlay(g, { type: 'period', side: null, pts: 0, text: 'Tip-off' }, false);
     while (g.status === 'live' && (g.q < m[2] || (g.q === m[2] && g.clock > m[3]))) step(g, false);
     return g;
   }
 
-  function alertOK(g) { return state.alerts === 'all' || (state.alerts === 'followed' && g.followed); }
+  function alertOK(g) { return g.id === sel; }
   function scoreStr(g, p) { return g.side.a + ' ' + p.sa + ' – ' + g.side.h + ' ' + p.sh; }
 
   function onPlay(g, p) { if (p.hl && alertOK(g)) toast(g, p); }
@@ -348,12 +329,10 @@ td.dim { color: var(--ink-2); }
     }).join('');
     var status = g.status === 'final' ? '<span class="pill final">Final</span>' : '<span class="pill live"><i></i>Live</span>';
     var clock = g.status === 'final' ? '' : per(g.q) + ' ' + fmt(g.clock);
-    var name = g.side.a + ' at ' + g.side.h;
     return '<article class="game' + (g.id === sel ? ' sel' : '') + '">' +
       '<button type="button" class="pick" data-act="select" data-id="' + g.id + '" data-focus="pick' + g.id + '" aria-pressed="' + (g.id === sel) + '">' +
       '<span class="g-top">' + status + '<span class="g-clock">' + clock + '</span></span>' + rows +
       '<span class="g-last">' + (last ? last.text : '') + '</span></button>' +
-      '<button type="button" class="star" data-act="follow" data-id="' + g.id + '" data-focus="star' + g.id + '" aria-pressed="' + g.followed + '" aria-label="Follow ' + name + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.8l6-.8z"/></svg></button>' +
       '</article>';
   }
 
@@ -424,11 +403,10 @@ td.dim { color: var(--ink-2); }
     render();
   }
 
-  function restartTimer() { clearInterval(timer); timer = setInterval(tick, state.speed); }
+  function restartTimer() { clearInterval(timer); timer = setInterval(tick, TICK_MS); }
 
   function newSlate() {
-    var f = games.map(function (g) { return g.followed; });
-    games = MATCHUPS.map(function (m, i) { return newGame(i, m, f.length ? f[i] : i === 0); });
+    games = MATCHUPS.map(function (m, i) { return newGame(i, m); });
     els.toasts.innerHTML = '';
     sel = 0;
   }
@@ -437,10 +415,7 @@ td.dim { color: var(--ink-2); }
     var b = e.target.closest('[data-act]');
     if (!b) return;
     var act = b.dataset.act, val = b.dataset.val;
-    if (act === 'select') { sel = +b.dataset.id; render(); }
-    else if (act === 'follow') { var g = games[+b.dataset.id]; g.followed = !g.followed; render(); }
-    else if (act === 'speed') { state.speed = +val; restartTimer(); sync(); }
-    else if (act === 'alerts') { state.alerts = val; sync(); }
+    if (act === 'select') { sel = +b.dataset.id; els.toasts.innerHTML = ''; render(); }
     else if (act === 'filter') { state.filter = val; sync(); render(); }
     else if (act === 'scope') { state.scope = val; sync(); render(); }
     else if (act === 'pause') { state.paused = !state.paused; sync(); }
