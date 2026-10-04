@@ -1,0 +1,452 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Courtside Ticker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=Big+Shoulders+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+/* Layout: toolbar, a strip of live game cards, then a stage with a sticky scorebug (left) beside the play-by-play feed (right). Stacks to one column on phones. */
+:root {
+  --bg: #E9EDF2;
+  --surface: #FFFFFF;
+  --ink: #101826;
+  --ink-2: #4A5668;
+  --line: #D3D9E2;
+  --accent: #E8530A;
+  --accent-text: #B53D00;
+  --accent-ink: #0B1017;
+  --live: #D92D20;
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-label: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1017; --surface: #131A24; --ink: #EEF2F7; --ink-2: #9BA8BA; --line: #263142;
+    --accent: #FF7A33; --accent-text: #FF8F52; --live: #FF6B5E; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1017; --surface: #131A24; --ink: #EEF2F7; --ink-2: #9BA8BA; --line: #263142;
+  --accent: #FF7A33; --accent-text: #FF8F52; --live: #FF6B5E; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font-body); padding-inline: 16px; padding-block: 20px 56px; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+p { margin: 0; }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; }
+.brand { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+h1 { margin: 0; font: 800 clamp(32px, 6vw, 48px)/0.95 var(--font-display); text-transform: uppercase; letter-spacing: 0.02em; }
+.demo { align-self: flex-start; font: 600 12px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; }
+.ctl { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ctl > span { font: 600 11px var(--font-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { padding: 7px 12px; font: 600 14px var(--font-label); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.btn { padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font: 600 14px var(--font-label); letter-spacing: 0.04em; text-transform: uppercase; }
+
+h2 { margin: 0 0 10px; font: 700 13px var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); }
+
+.games { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 12px; }
+.game { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.game.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pick { display: block; width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px; }
+.g-top { display: flex; align-items: center; gap: 10px; padding-right: 34px; margin-bottom: 6px; }
+.g-clock { font: 600 14px var(--font-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.g-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; padding: 2px 0; }
+.g-abbr { font: 700 19px var(--font-label); letter-spacing: 0.04em; }
+.g-score { font: 800 32px/1 var(--font-display); font-variant-numeric: tabular-nums; transform-origin: right center; }
+.g-row.trail .g-score { color: var(--ink-2); }
+.g-last { display: block; margin-top: 8px; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.star { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--ink-2); }
+.star svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+.star[aria-pressed="true"] { color: var(--accent-text); }
+.star[aria-pressed="true"] svg { fill: currentColor; }
+
+.chip { width: 14px; height: 14px; border-radius: 3px; background: var(--c); }
+.chip.sm { width: 10px; height: 10px; flex: none; margin-top: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 700 12px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+.pill.live { color: var(--live); background: color-mix(in srgb, var(--live) 14%, transparent); }
+.pill.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); animation: pulse 1.4s ease-in-out infinite; }
+.pill.final { color: var(--ink-2); border: 1px solid var(--line); }
+
+.stage { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.bug { padding: 18px; position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); }
+.bug-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-bottom: 12px; }
+.bug-clock { font: 800 clamp(34px, 6vw, 48px)/1 var(--font-display); text-transform: uppercase; font-variant-numeric: tabular-nums; }
+.bug-where { font: 600 14px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+.sb-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.sb-row .chip { width: 18px; height: 18px; border-radius: 4px; }
+.sb-name { display: flex; flex-direction: column; min-width: 0; }
+.sb-name small { font: 600 13px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+.sb-name strong { font: 800 clamp(24px, 4vw, 32px)/1.05 var(--font-display); text-transform: uppercase; letter-spacing: 0.02em; }
+.sb-score { font: 800 clamp(48px, 9vw, 68px)/1 var(--font-display); font-variant-numeric: tabular-nums; transform-origin: right center; }
+.sb-row.trail .sb-score { color: var(--ink-2); }
+.poss { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.scroll { overflow-x: auto; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 8px; text-align: center; border-top: 1px solid var(--line); }
+th { font: 700 12px var(--font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); border-top: 0; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; font: 700 15px var(--font-label); letter-spacing: 0.05em; }
+td.tot { font-weight: 600; }
+td.dim { color: var(--ink-2); }
+
+.feed-head { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 14px 16px; }
+.plays { list-style: none; margin: 0; padding: 0; }
+.play { display: flex; justify-content: space-between; gap: 14px; padding: 11px 16px; border-top: 1px solid var(--line); }
+.play.hl { background: color-mix(in srgb, var(--accent) 11%, transparent); }
+.play.fresh { animation: in 0.35s ease-out; }
+.play-main { min-width: 0; flex: 1; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 600 13px var(--font-label); letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pts { color: var(--ink); font-weight: 700; }
+.flag { color: var(--accent-text); font-weight: 700; }
+.what { display: flex; gap: 8px; align-items: flex-start; margin-top: 3px; overflow-wrap: anywhere; }
+.sc { display: flex; flex-direction: column; align-items: flex-end; font: 700 14px var(--font-label); letter-spacing: 0.05em; color: var(--ink-2); font-variant-numeric: tabular-nums; flex: none; }
+.sc b { color: var(--ink); font-size: 16px; }
+.tag { font: 700 11px var(--font-label); letter-spacing: 0.09em; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--ink-2); }
+.tag.hl { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.empty { padding: 22px 16px; color: var(--ink-2); border-top: 1px solid var(--line); }
+
+.toasts { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: min(340px, calc(100vw - 32px)); display: flex; flex-direction: column-reverse; gap: 8px; z-index: 10; pointer-events: none; }
+.toast { pointer-events: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgba(8, 12, 20, 0.22); animation: in 0.3s ease-out; }
+.t-top { display: flex; align-items: center; gap: 8px; }
+.t-game { flex: 1; min-width: 0; font: 600 13px var(--font-label); letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-x { width: 24px; height: 24px; border-radius: 6px; color: var(--ink-2); font-size: 18px; line-height: 1; }
+.t-main { font: 700 20px/1.15 var(--font-display); text-transform: uppercase; letter-spacing: 0.02em; margin-top: 6px; }
+.t-score { font: 600 14px var(--font-label); letter-spacing: 0.06em; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+.note { color: var(--ink-2); font-size: 13px; max-width: 70ch; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes bump { 0% { transform: scale(1.2); color: var(--accent-text); } 100% { transform: none; } }
+@keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.bump { animation: bump 0.6s ease-out; }
+@media (max-width: 860px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .bug { position: static; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Courtside Ticker</h1>
+      <span class="demo">Demo feed · simulated games, invented players</span>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span>Game speed</span>
+        <div class="seg" role="group" aria-label="Game speed">
+          <button type="button" data-act="speed" data-val="2000" aria-pressed="true">Normal</button>
+          <button type="button" data-act="speed" data-val="900" aria-pressed="false">Fast</button>
+          <button type="button" data-act="speed" data-val="300" aria-pressed="false">Turbo</button>
+        </div>
+      </div>
+      <div class="ctl"><span>Highlight alerts</span>
+        <div class="seg" role="group" aria-label="Highlight alerts">
+          <button type="button" data-act="alerts" data-val="all" aria-pressed="true">All games</button>
+          <button type="button" data-act="alerts" data-val="followed" aria-pressed="false">Followed</button>
+          <button type="button" data-act="alerts" data-val="off" aria-pressed="false">Off</button>
+        </div>
+      </div>
+      <button type="button" class="btn" id="pause" data-act="pause">Pause</button>
+      <button type="button" class="btn" data-act="restart">New slate</button>
+    </div>
+  </header>
+
+  <section aria-label="Games">
+    <h2>Tonight's games</h2>
+    <div class="games" id="games"></div>
+  </section>
+
+  <div class="stage">
+    <section class="panel bug" id="bug" aria-label="Selected game"></section>
+    <section class="panel" aria-label="Play by play">
+      <div class="feed-head">
+        <div class="seg" role="group" aria-label="Filter plays">
+          <button type="button" data-act="filter" data-val="all" aria-pressed="true">All plays</button>
+          <button type="button" data-act="filter" data-val="scoring" aria-pressed="false">Scoring</button>
+          <button type="button" data-act="filter" data-val="hl" aria-pressed="false">Highlights</button>
+        </div>
+        <div class="seg" role="group" aria-label="Feed scope">
+          <button type="button" data-act="scope" data-val="game" aria-pressed="true">This game</button>
+          <button type="button" data-act="scope" data-val="league" aria-pressed="false">League wire</button>
+        </div>
+      </div>
+      <ol class="plays" id="plays"></ol>
+    </section>
+  </div>
+
+  <p class="note">Star a game to follow it, then set alerts to Followed. Dunks, threes, blocks and final scores pop up as they happen. This page runs on a built-in game simulator. To go live, replace the simulator's step function with a real scores feed.</p>
+</div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  var TEAMS = {
+    PHI: { city: 'Philadelphia', name: '76ers', color: '#1E7BD6', players: ['T. Whitlock', 'D. Okonkwo', 'R. Vasquez', 'C. Brandt', 'M. Abernathy'] },
+    BOS: { city: 'Boston', name: 'Celtics', color: '#1B9E52', players: ['K. Lindqvist', 'J. Hargrove', 'E. Mbeki', 'A. Castellano', 'B. Tran'] },
+    LAL: { city: 'Los Angeles', name: 'Lakers', color: '#8A4FD3', players: ['S. Moreau', 'D. Pruitt', 'L. Adeyemi', 'H. Kowalski', 'N. Ferreira'] },
+    GSW: { city: 'Golden State', name: 'Warriors', color: '#F5B800', players: ['P. Nakamura', 'G. Ellison', 'O. Baptiste', 'V. Schultz', 'I. Duarte'] },
+    NYK: { city: 'New York', name: 'Knicks', color: '#F58426', players: ['Z. Fontaine', 'W. Ibarra', 'C. Oyelaran', 'F. Dunmore', 'Q. Yilmaz'] },
+    MIA: { city: 'Miami', name: 'Heat', color: '#D0213F', players: ['A. Santiago', 'T. Kimura', 'R. Bellamy', 'L. Osei', 'J. Varga'] },
+    DEN: { city: 'Denver', name: 'Nuggets', color: '#E0A91B', players: ['M. Petrovic', 'D. Achebe', 'S. Lindgren', 'K. Montoya', 'E. Rao'] },
+    MIL: { city: 'Milwaukee', name: 'Bucks', color: '#2C7A4B', players: ['B. Halvorsen', 'C. Mensah', 'N. Dubois', 'T. Gallagher', 'H. Okamoto'] }
+  };
+  // away, home, seed quarter, seed seconds left in that quarter
+  var MATCHUPS = [['PHI', 'BOS', 2, 312], ['LAL', 'GSW', 4, 220], ['NYK', 'MIA', 1, 500], ['DEN', 'MIL', 3, 615]];
+  var TAGS = { two: 'SHOT', dunk: 'DUNK', three: '3PT', miss: 'MISS', steal: 'STEAL', block: 'BLOCK', ft: 'FT', timeout: 'TIMEOUT', turnover: 'TURNOVER', period: 'PERIOD', final: 'FINAL' };
+  var W = [0.32, 0.24, 0.18, 0.14, 0.12];
+
+  var TWO = [
+    function (p) { return p + ' drives and finishes at the rim'; },
+    function (p) { return p + ' hits a pull-up jumper'; },
+    function (p) { return p + ' knocks down a floater'; },
+    function (p) { return p + ' scores on a turnaround hook'; },
+    function (p) { return p + ' cuts backdoor for the layup'; }
+  ];
+  var DUNK = [
+    function (p) { return p + ' dunks it with authority'; },
+    function (p) { return p + ' throws down a two-handed dunk'; },
+    function (p) { return p + ' finishes the lob with a dunk'; },
+    function (p) { return p + ' rises up and slams it home'; }
+  ];
+  var THREE = [
+    function (p) { return p + ' drains a three-pointer'; },
+    function (p) { return p + ' hits a three from the corner'; },
+    function (p) { return p + ' pulls up from deep and connects'; },
+    function (p) { return p + ' splashes a step-back three'; }
+  ];
+  var SHOTS = ['a jumper', 'a three-pointer', 'a layup', 'a floater', 'a fadeaway'];
+
+  var state = { speed: 2000, alerts: 'all', filter: 'all', scope: 'game', paused: false };
+  var games = [];
+  var sel = 0;
+  var pid = 0;
+  var timer = null;
+
+  var els = {
+    games: document.getElementById('games'),
+    bug: document.getElementById('bug'),
+    plays: document.getElementById('plays'),
+    toasts: document.getElementById('toasts'),
+    pause: document.getElementById('pause')
+  };
+
+  function rnd() { return Math.random(); }
+  function pick(a) { return a[Math.floor(rnd() * a.length)]; }
+  function wpick(a) { var r = rnd(), i = 0; for (; i < W.length - 1; i++) { r -= W[i]; if (r < 0) break; } return a[i]; }
+  function other(s) { return s === 'a' ? 'h' : 'a'; }
+  function fmt(s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+  function per(q) { return q <= 4 ? 'Q' + q : (q === 5 ? 'OT' : (q - 4) + 'OT'); }
+  function teamOf(g, s) { return TEAMS[g.side[s]]; }
+
+  function addPlay(g, p, live) {
+    p.id = ++pid; p.gid = g.id; p.q = g.q; p.clock = g.clock;
+    p.sa = g.score.a; p.sh = g.score.h; p.ts = live ? Date.now() : 0;
+    g.plays.unshift(p);
+    if (g.plays.length > 120) g.plays.pop();
+    return p;
+  }
+
+  function genPlay(g, side) {
+    var o = teamOf(g, side), d = teamOf(g, other(side));
+    var P = wpick(o.players), D = pick(d.players), r = rnd();
+    if (r < 0.18) return { side: side, type: 'two', pts: 2, text: pick(TWO)(P) };
+    if (r < 0.25) return { side: side, type: 'dunk', pts: 2, hl: 1, text: pick(DUNK)(P), alert: P + ' dunked it' };
+    if (r < 0.38) return { side: side, type: 'three', pts: 3, hl: 1, text: pick(THREE)(P), alert: P + ' hit a three' };
+    if (r < 0.56) {
+      var R = rnd() < 0.2 ? pick(o.players) : D;
+      return { side: rnd() < 0.2 ? side : other(side), type: 'miss', pts: 0, text: P + ' misses ' + pick(SHOTS) + '. ' + R + ' grabs the rebound' };
+    }
+    if (r < 0.63) return { side: other(side), type: 'steal', pts: 0, text: D + ' steals the ball from ' + P };
+    if (r < 0.69) return { side: other(side), type: 'block', pts: 0, hl: 1, text: D + ' blocks ' + P + '’s shot', alert: D + ' blocked ' + P };
+    if (r < 0.80) {
+      var n = rnd() < 0.75 ? 2 : 3, made = 0;
+      for (var i = 0; i < n; i++) if (rnd() < 0.78) made++;
+      return { side: side, type: 'ft', pts: made, text: D + ' fouls ' + P + '. ' + P + ' makes ' + made + ' of ' + n + ' free throws' };
+    }
+    if (r < 0.83) return { side: side, type: 'timeout', pts: 0, text: o.name + ' take a timeout' };
+    return { side: side, type: 'turnover', pts: 0, text: P + ' loses the ball out of bounds' };
+  }
+
+  function endPeriod(g, live) {
+    g.clock = 0;
+    var a = g.score.a, h = g.score.h, A = g.side.a, H = g.side.h;
+    if (g.q >= 4 && a !== h) {
+      var w = a > h ? 'a' : 'h', t = teamOf(g, w), hi = Math.max(a, h), lo = Math.min(a, h);
+      var fp = addPlay(g, { type: 'final', side: w, pts: 0, hl: 1, text: 'Final. ' + t.name + ' win ' + hi + '–' + lo + '.', alert: t.name + ' win ' + hi + '–' + lo }, live);
+      g.status = 'final';
+      if (live) onPlay(g, fp);
+      return;
+    }
+    var text = g.q < 4 ? 'End of ' + per(g.q) + '. ' + A + ' ' + a + ', ' + H + ' ' + h
+      : (g.q === 4 ? 'End of regulation, tied at ' + a + '. Overtime' : 'End of overtime, still tied at ' + a + '. Another overtime');
+    addPlay(g, { type: 'period', side: null, pts: 0, text: text }, live);
+    g.q++; g.clock = g.q > 4 ? 300 : 720; g.qs.push({ a: 0, h: 0 });
+    g.poss = rnd() < 0.5 ? 'a' : 'h';
+  }
+
+  function step(g, live) {
+    if (g.status !== 'live') return;
+    var dt = 6 + Math.floor(rnd() * 17);
+    if (g.clock <= dt) { endPeriod(g, live); return; }
+    g.clock -= dt;
+    var side = g.poss, prev = Math.sign(g.score.h - g.score.a);
+    var p = genPlay(g, side);
+    if (p.pts) {
+      g.score[p.side] += p.pts; g.qs[g.q - 1][p.side] += p.pts;
+      var now = Math.sign(g.score.h - g.score.a);
+      if (prev !== 0 && now !== prev) p.flag = now === 0 ? 'Tied' : 'Lead change';
+    }
+    addPlay(g, p, live);
+    if (p.type !== 'timeout' && rnd() > 0.1) g.poss = other(g.poss);
+    if (live) onPlay(g, p);
+  }
+
+  function newGame(i, m, followed) {
+    var g = { id: i, side: { a: m[0], h: m[1] }, score: { a: 0, h: 0 }, qs: [{ a: 0, h: 0 }], q: 1, clock: 720, status: 'live', poss: rnd() < 0.5 ? 'a' : 'h', plays: [], followed: followed };
+    addPlay(g, { type: 'period', side: null, pts: 0, text: 'Tip-off' }, false);
+    while (g.status === 'live' && (g.q < m[2] || (g.q === m[2] && g.clock > m[3]))) step(g, false);
+    return g;
+  }
+
+  function alertOK(g) { return state.alerts === 'all' || (state.alerts === 'followed' && g.followed); }
+  function scoreStr(g, p) { return g.side.a + ' ' + p.sa + ' – ' + g.side.h + ' ' + p.sh; }
+
+  function onPlay(g, p) { if (p.hl && alertOK(g)) toast(g, p); }
+
+  function toast(g, p) {
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = '<div class="t-top"><span class="tag hl">' + TAGS[p.type] + '</span><span class="t-game">' + g.side.a + ' @ ' + g.side.h + ' · ' + per(p.q) + ' ' + fmt(p.clock) + '</span><button type="button" class="t-x" data-act="dismiss" aria-label="Dismiss">×</button></div><p class="t-main">' + p.alert + '</p><p class="t-score">' + scoreStr(g, p) + '</p>';
+    els.toasts.prepend(el);
+    while (els.toasts.children.length > 3) els.toasts.lastElementChild.remove();
+    setTimeout(function () { if (el.parentNode) el.remove(); }, 5200);
+  }
+
+  function fresh(p) { return p.ts && Date.now() - p.ts < 900; }
+
+  function cardHTML(g) {
+    var last = g.plays[0], lead = Math.sign(g.score.h - g.score.a);
+    var rows = ['a', 'h'].map(function (s) {
+      var t = teamOf(g, s), trail = (s === 'a' && lead > 0) || (s === 'h' && lead < 0);
+      var bump = last && fresh(last) && last.pts > 0 && last.side === s ? ' bump' : '';
+      return '<span class="g-row' + (trail ? ' trail' : '') + '"><span class="chip" style="--c:' + t.color + '"></span><span class="g-abbr">' + g.side[s] + '</span><span class="g-score' + bump + '">' + g.score[s] + '</span></span>';
+    }).join('');
+    var status = g.status === 'final' ? '<span class="pill final">Final</span>' : '<span class="pill live"><i></i>Live</span>';
+    var clock = g.status === 'final' ? '' : per(g.q) + ' ' + fmt(g.clock);
+    var name = g.side.a + ' at ' + g.side.h;
+    return '<article class="game' + (g.id === sel ? ' sel' : '') + '">' +
+      '<button type="button" class="pick" data-act="select" data-id="' + g.id + '" data-focus="pick' + g.id + '" aria-pressed="' + (g.id === sel) + '">' +
+      '<span class="g-top">' + status + '<span class="g-clock">' + clock + '</span></span>' + rows +
+      '<span class="g-last">' + (last ? last.text : '') + '</span></button>' +
+      '<button type="button" class="star" data-act="follow" data-id="' + g.id + '" data-focus="star' + g.id + '" aria-pressed="' + g.followed + '" aria-label="Follow ' + name + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.8l6-.8z"/></svg></button>' +
+      '</article>';
+  }
+
+  function bugHTML(g) {
+    var last = g.plays[0], lead = Math.sign(g.score.h - g.score.a);
+    var clock = g.status === 'final' ? 'Final' : per(g.q) + ' ' + fmt(g.clock);
+    var status = g.status === 'final' ? '<span class="pill final">Final</span>' : '<span class="pill live"><i></i>Live</span>';
+    var rows = ['a', 'h'].map(function (s) {
+      var t = teamOf(g, s), trail = (s === 'a' && lead > 0) || (s === 'h' && lead < 0);
+      var bump = last && fresh(last) && last.pts > 0 && last.side === s ? ' bump' : '';
+      var poss = g.status === 'live' && g.poss === s ? '<span class="poss" title="Has the ball"></span>' : '';
+      return '<div class="sb-row' + (trail ? ' trail' : '') + '"><span class="chip" style="--c:' + t.color + '"></span><div class="sb-name"><small>' + t.city + poss + '</small><strong>' + t.name + '</strong></div><div class="sb-score' + bump + '">' + g.score[s] + '</div></div>';
+    }).join('');
+    var cols = Math.max(4, g.q), head = '', body = { a: '', h: '' };
+    for (var i = 0; i < cols; i++) {
+      head += '<th scope="col">' + (i < 4 ? i + 1 : (i === 4 ? 'OT' : (i - 3) + 'OT')) + '</th>';
+      ['a', 'h'].forEach(function (s) {
+        body[s] += i < g.qs.length ? '<td>' + g.qs[i][s] + '</td>' : '<td class="dim">–</td>';
+      });
+    }
+    var lines = ['a', 'h'].map(function (s) {
+      return '<tr><td>' + g.side[s] + '</td>' + body[s] + '<td class="tot">' + g.score[s] + '</td></tr>';
+    }).join('');
+    return '<div class="bug-head"><div style="display:flex;align-items:center;gap:10px">' + status + '<span class="bug-where">' + g.side.a + ' @ ' + g.side.h + '</span></div><div class="bug-clock">' + clock + '</div></div>' + rows +
+      '<div class="scroll"><table><thead><tr><th scope="col">Line score</th>' + head + '<th scope="col">T</th></tr></thead><tbody>' + lines + '</tbody></table></div>';
+  }
+
+  function playHTML(p, showGame) {
+    var g = games[p.gid];
+    var chip = p.side ? '<span class="chip sm" style="--c:' + TEAMS[g.side[p.side]].color + '"></span>' : '';
+    var meta = '<span>' + per(p.q) + ' ' + fmt(p.clock) + '</span><span class="tag' + (p.hl ? ' hl' : '') + '">' + TAGS[p.type] + '</span>' +
+      (p.pts > 0 ? '<span class="pts">+' + p.pts + '</span>' : '') +
+      (showGame ? '<span>' + g.side.a + ' @ ' + g.side.h + '</span>' : '') +
+      (p.flag ? '<span class="flag">' + p.flag + '</span>' : '');
+    var sc = p.pts > 0 || p.type === 'final' ? '<span class="sc"><span>' + g.side.a + ' <b>' + p.sa + '</b></span><span>' + g.side.h + ' <b>' + p.sh + '</b></span></span>' : '';
+    return '<li class="play' + (p.hl ? ' hl' : '') + (fresh(p) ? ' fresh' : '') + '"><div class="play-main"><div class="meta">' + meta + '</div><p class="what">' + chip + '<span>' + p.text + '</span></p></div>' + sc + '</li>';
+  }
+
+  function feedHTML() {
+    var list = state.scope === 'game' ? games[sel].plays.slice() : [].concat.apply([], games.map(function (g) { return g.plays; })).sort(function (x, y) { return y.id - x.id; });
+    list = list.filter(function (p) {
+      if (state.filter === 'scoring') return p.pts > 0 || p.type === 'final';
+      if (state.filter === 'hl') return p.hl;
+      return true;
+    }).slice(0, 40);
+    if (!list.length) return '<li class="empty">Nothing here yet. Plays show up as they happen.</li>';
+    return list.map(function (p) { return playHTML(p, state.scope === 'league'); }).join('');
+  }
+
+  function render() {
+    var ae = document.activeElement, key = ae && ae.dataset ? ae.dataset.focus : null;
+    els.games.innerHTML = games.map(cardHTML).join('');
+    els.bug.innerHTML = bugHTML(games[sel]);
+    els.plays.innerHTML = feedHTML();
+    if (key) { var n = document.querySelector('[data-focus="' + key + '"]'); if (n) n.focus({ preventScroll: true }); }
+  }
+
+  function sync() {
+    document.querySelectorAll('[data-val]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(String(state[b.dataset.act]) === b.dataset.val));
+    });
+    els.pause.textContent = state.paused ? 'Resume' : 'Pause';
+  }
+
+  function tick() {
+    if (state.paused) return;
+    games.forEach(function (g) { step(g, true); });
+    render();
+  }
+
+  function restartTimer() { clearInterval(timer); timer = setInterval(tick, state.speed); }
+
+  function newSlate() {
+    var f = games.map(function (g) { return g.followed; });
+    games = MATCHUPS.map(function (m, i) { return newGame(i, m, f.length ? f[i] : i === 0); });
+    els.toasts.innerHTML = '';
+    sel = 0;
+  }
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-act]');
+    if (!b) return;
+    var act = b.dataset.act, val = b.dataset.val;
+    if (act === 'select') { sel = +b.dataset.id; render(); }
+    else if (act === 'follow') { var g = games[+b.dataset.id]; g.followed = !g.followed; render(); }
+    else if (act === 'speed') { state.speed = +val; restartTimer(); sync(); }
+    else if (act === 'alerts') { state.alerts = val; sync(); }
+    else if (act === 'filter') { state.filter = val; sync(); render(); }
+    else if (act === 'scope') { state.scope = val; sync(); render(); }
+    else if (act === 'pause') { state.paused = !state.paused; sync(); }
+    else if (act === 'restart') { newSlate(); render(); }
+    else if (act === 'dismiss') { var t = b.closest('.toast'); if (t) t.remove(); }
+  });
+
+  newSlate();
+  sync();
+  render();
+  restartTimer();
+})();
+</script>
+
+</body></html>
